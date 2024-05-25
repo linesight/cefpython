@@ -272,7 +272,7 @@ def get_python_include_path():
     #    ~/.pyenv/versions/2.7.13/include/python2.7
     # 3) ~/.pyenv/versions/3.4.6/include/python2.7m
     # 4) /usr/include/python2.7
-    base_dir = os.path.dirname(sys.executable)
+    base_dir = sys.base_prefix
     try_dirs = ["{base_dir}/include",
                 "{base_dir}/../include/python{ver}",
                 "{base_dir}/../include/python{ver}*",
