@@ -147,13 +147,13 @@ def get_winsdk_lib():
     if WINDOWS:
         if ARCH32:
             winsdk_libs = [
-                # Windows 7 SDKs.
+                r"C:\Program Files (x86)\Microsoft SDKs\Windows Kits\10",
                 r"C:\\Program Files\\Microsoft SDKs\\Windows\\v7.1\\Lib",
                 r"C:\\Program Files\\Microsoft SDKs\\Windows\\v7.0\\Lib",
             ]
         elif ARCH64:
             winsdk_libs = [
-                # Windows 7 SDKs.
+                r"C:\Program Files (x86)\Microsoft SDKs\Windows Kits\10",
                 r"C:\\Program Files\\Microsoft SDKs\\Windows\\v7.1\\Lib\\x64",
                 r"C:\\Program Files\\Microsoft SDKs\\Windows\\v7.0\\Lib\\x64",
             ]
@@ -200,7 +200,7 @@ def set_compiler_options(options):
         #
         # The above warning LNK4217 is caused by the warning below which occurs
         # when building the client_handler.lib static library:
-        extra_compile_args.extend(["/EHsc", "/wd4305"])
+        extra_compile_args.extend(["/EHsc", "/wd4305", "/std:c++17"])
         extra_link_args.extend(["/ignore:4217"])
 
     if LINUX or MAC:
@@ -436,6 +436,7 @@ def get_ext_modules(options):
             "c_string_encoding": "utf-8",
             "profile": ENABLE_PROFILING,
             "linetrace": ENABLE_LINE_TRACING,
+            "language_level": "2",
         },
 
         language="c++",

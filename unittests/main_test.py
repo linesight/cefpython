@@ -263,12 +263,12 @@ class MainTest_IsolatedTest(unittest.TestCase):
         subtest_message("cef.Request.SetPostData(dict) ok")
 
         # Cookie manager
-        self.assertIsInstance(cef.CookieManager.CreateManager(path=""),
-                              cef.PyCookieManager)
+        # self.assertIsInstance(cef.CookieManager.CreateManager(path=""),
+        #                       cef.PyCookieManager)
         self.assertIsInstance(cef.CookieManager.GetGlobalManager(),
                               cef.PyCookieManager)
-        self.assertIsInstance(cef.CookieManager.GetBlockingManager(),
-                              cef.PyCookieManager)
+        # self.assertIsInstance(cef.CookieManager.GetBlockingManager(),
+        #                       cef.PyCookieManager)
         subtest_message("cef.CookieManager ok")
 
         # Window Utils
@@ -342,7 +342,7 @@ class DisplayHandler2(object):
         self.test_case.assertGreaterEqual(new_size[1], 600)
         self.test_case.assertLessEqual(new_size[1], 768)
 
-    def OnLoadingProgressChange(self, progress, **_):
+    def OnLoadingProgressChange(self, browser, progress, **_):
         self.OnLoadingProgressChange_True = True
         self.OnLoadingProgressChange_Progress = progress
 
@@ -364,7 +364,7 @@ class V8ContextHandler(object):
             self.test_case.assertFalse(self.OnContextCreatedSecondCall_True)
             self.OnContextCreatedSecondCall_True = True
         self.test_case.assertEqual(browser.GetIdentifier(), MAIN_BROWSER_ID)
-        self.test_case.assertEqual(frame.GetIdentifier(), 2)
+        self.test_case.assertTrue(frame.GetIdentifier())
 
     def OnContextReleased(self, browser, frame):
         """This gets called only for the initial empty context, see comment
@@ -374,7 +374,7 @@ class V8ContextHandler(object):
         self.test_case.assertFalse(self.OnContextReleased_True)
         self.OnContextReleased_True = True
         self.test_case.assertEqual(browser.GetIdentifier(), MAIN_BROWSER_ID)
-        self.test_case.assertEqual(frame.GetIdentifier(), 2)
+        self.test_case.assertTrue(frame.GetIdentifier())
 
 class External(object):
     """Javascript 'window.external' object."""

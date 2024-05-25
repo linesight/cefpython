@@ -782,6 +782,7 @@ def build_cefpython_module():
                        enable_line_tracing=enable_line_tracing))
     if FAST_FLAG:
         command += " --fast"
+    print('cython:', command)
     ret = subprocess.call(command, shell=True)
 
     # if DEBUG_FLAG:
