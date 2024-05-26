@@ -302,7 +302,7 @@ List of threads in the Browser process:
 * cef.TID_IO: Used to process IPC and network messages. Do not perform blocking tasks on this thread. All tasks posted after CefBrowserProcessHandler::OnContextInitialized() and before CefShutdown() are guaranteed to run.
 
 List of threads in the Renderer process:
-* cef.TID_RENDERER: Tasks may be posted to this thread after CefRenderProcessHandler::OnRenderThreadCreated but are not guaranteed to run before sub-process termination (sub-processes may be killed at any time without warning).
+* cef.TID_RENDERER: Tasks may be posted to this thread after CefRenderProcessHandler::OnWebKitInitialized but are not guaranteed to run before sub-process termination (sub-processes may be killed at any time without warning).
 
 
 ### PostDelayedTask
