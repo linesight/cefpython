@@ -71,7 +71,7 @@ def get_cefpython_modules():
     'cefpython_py27'. """
     pyds = glob.glob(os.path.join(CEFPYTHON3_DIR,
                                   "cefpython_py*" + CYTHON_MODULE_EXT))
-    assert len(pyds) > 1, "Missing cefpython3 Cython modules"
+    assert len(pyds) >= 1, "Missing cefpython3 Cython modules"
     modules = []
     for path in pyds:
         filename = os.path.basename(path)
