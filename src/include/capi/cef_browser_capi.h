@@ -33,7 +33,7 @@
 // by hand. See the translator.README.txt file in the tools directory for
 // more information.
 //
-// $hash=e7f9480661f77931890085d6c5bf23d9842212e2$
+// $hash=6ee74f31d37a1b5ab3c9c5ccbe2dce9841329b38$
 //
 
 #ifndef CEF_INCLUDE_CAPI_CEF_BROWSER_CAPI_H_
@@ -911,6 +911,8 @@ typedef struct _cef_browser_host_t {
   /// Returns the extension hosted in this browser or NULL if no extension is
   /// hosted. See cef_request_context_t::LoadExtension for details.
   ///
+  /// WARNING: This function is deprecated and will be removed in ~M127.
+  ///
   struct _cef_extension_t*(CEF_CALLBACK* get_extension)(
       struct _cef_browser_host_t* self);
 
@@ -918,6 +920,8 @@ typedef struct _cef_browser_host_t {
   /// Returns true (1) if this browser is hosting an extension background
   /// script. Background hosts do not have a window and are not displayable. See
   /// cef_request_context_t::LoadExtension for details.
+  ///
+  /// WARNING: This function is deprecated and will be removed in ~M127.
   ///
   int(CEF_CALLBACK* is_background_host)(struct _cef_browser_host_t* self);
 
@@ -974,6 +978,24 @@ typedef struct _cef_browser_host_t {
       struct _cef_browser_host_t* self,
       int command_id,
       cef_window_open_disposition_t disposition);
+
+  ///
+  /// Returns true (1) if the render process associated with this browser is
+  /// currently unresponsive as indicated by a lack of input event processing
+  /// for at least 15 seconds. To receive associated state change notifications
+  /// and optionally handle an unresponsive render process implement
+  /// cef_request_handler_t::OnRenderProcessUnresponsive. This function can only
+  /// be called on the UI thread.
+  ///
+  int(CEF_CALLBACK* is_render_process_unresponsive)(
+      struct _cef_browser_host_t* self);
+
+  ///
+  /// Returns the runtime style for this browser (ALLOY or CHROME). See
+  /// cef_runtime_style_t documentation for details.
+  ///
+  cef_runtime_style_t(CEF_CALLBACK* get_runtime_style)(
+      struct _cef_browser_host_t* self);
 } cef_browser_host_t;
 
 ///

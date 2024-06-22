@@ -33,7 +33,7 @@
 // by hand. See the translator.README.txt file in the tools directory for
 // more information.
 //
-// $hash=c1c2705cdef7d9189557b57531dc2d53e9f68d0c$
+// $hash=e8c9e32caa8d317a7cb6ff2f0ad6be49cf1b7ad1$
 //
 
 #ifndef CEF_INCLUDE_CAPI_VIEWS_CEF_WINDOW_DELEGATE_CAPI_H_
@@ -183,6 +183,20 @@ typedef struct _cef_window_delegate_t {
                                          float* titlebar_height);
 
   ///
+  /// Return whether the view should accept the initial mouse-down event,
+  /// allowing it to respond to click-through behavior. If STATE_ENABLED is
+  /// returned, the view will be sent a mouseDown: message for an initial mouse-
+  /// down event, activating the view with one click, instead of clicking first
+  /// to make the window active and then clicking the view.
+  ///
+  /// This function is only supported on macOS. For more details, refer to the
+  /// documentation of acceptsFirstMouse.
+  ///
+  cef_state_t(CEF_CALLBACK* accepts_first_mouse)(
+      struct _cef_window_delegate_t* self,
+      struct _cef_window_t* window);
+
+  ///
   /// Return true (1) if |window| can be resized.
   ///
   int(CEF_CALLBACK* can_resize)(struct _cef_window_delegate_t* self,
@@ -224,6 +238,50 @@ typedef struct _cef_window_delegate_t {
   int(CEF_CALLBACK* on_key_event)(struct _cef_window_delegate_t* self,
                                   struct _cef_window_t* window,
                                   const cef_key_event_t* event);
+
+  ///
+  /// Called after the native/OS or Chrome theme for |window| has changed.
+  /// |chrome_theme| will be true (1) if the notification is for a Chrome theme.
+  ///
+  /// Native/OS theme colors are configured globally and do not need to be
+  /// customized for each Window individually. An example of a native/OS theme
+  /// change that triggers this callback is when the user switches between dark
+  /// and light mode during application lifespan. Native/OS theme changes can be
+  /// disabled by passing the `--force-dark-mode` or `--force-light-mode`
+  /// command-line flag.
+  ///
+  /// Chrome theme colors will be applied and this callback will be triggered
+  /// if/when a BrowserView is added to the Window's component hierarchy. Chrome
+  /// theme colors can be configured on a per-RequestContext basis using
+  /// cef_request_context_t::SetChromeColorScheme or (Chrome runtime only) by
+  /// visiting chrome://settings/manageProfile. Any theme changes using those
+  /// mechanisms will also trigger this callback. Chrome theme colors will be
+  /// persisted and restored from disk cache with the Chrome runtime, and with
+  /// the Alloy runtime if persist_user_preferences is set to true (1) via
+  /// CefSettings or cef_request_context_tSettings.
+  ///
+  /// This callback is not triggered on Window creation so clients that wish to
+  /// customize the initial native/OS theme must call
+  /// cef_window_t::SetThemeColor and cef_window_t::ThemeChanged before showing
+  /// the first Window.
+  ///
+  /// Theme colors will be reset to standard values before this callback is
+  /// called for the first affected Window. Call cef_window_t::SetThemeColor
+  /// from inside this callback to override a standard color or add a custom
+  /// color. cef_view_delegate_t::OnThemeChanged will be called after this
+  /// callback for the complete |window| component hierarchy.
+  ///
+  void(CEF_CALLBACK* on_theme_colors_changed)(
+      struct _cef_window_delegate_t* self,
+      struct _cef_window_t* window,
+      int chrome_theme);
+
+  ///
+  /// Optionally change the runtime style for this Window. See
+  /// cef_runtime_style_t documentation for details.
+  ///
+  cef_runtime_style_t(CEF_CALLBACK* get_window_runtime_style)(
+      struct _cef_window_delegate_t* self);
 } cef_window_delegate_t;
 
 #ifdef __cplusplus

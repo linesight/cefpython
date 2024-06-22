@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Marshall A. Greenblatt. All rights reserved.
+// Copyright (c) 2024 Marshall A. Greenblatt. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -33,46 +33,30 @@
 // support the CEF translator tool. See the translator.README.txt file in the
 // tools directory for more information.
 //
-// THIS FILE IS FOR TESTING PURPOSES ONLY.
-//
-// The APIs defined in this file are for testing purposes only. They should only
-// be included from unit test targets.
-//
 
-#ifndef CEF_INCLUDE_TEST_CEF_TEST_HELPERS_H_
-#define CEF_INCLUDE_TEST_CEF_TEST_HELPERS_H_
+#ifndef CEF_INCLUDE_CEF_UNRESPONSIVE_PROCESS_CALLBACK_H_
+#define CEF_INCLUDE_CEF_UNRESPONSIVE_PROCESS_CALLBACK_H_
 #pragma once
 
-#if !defined(BUILDING_CEF_SHARED) && !defined(WRAPPING_CEF_SHARED) && \
-    !defined(UNIT_TEST)
-#error This file can be included for unit tests only
-#endif
-
-#include "include/cef_frame.h"
+#include "include/cef_base.h"
 
 ///
-/// Execute JavaScript with a user gesture to trigger functionality like
-/// onbeforeunload handlers that will otherwise be blocked.
+/// Callback interface for asynchronous handling of an unresponsive process.
 ///
-/*--cef(optional_param=javascript)--*/
-void CefExecuteJavaScriptWithUserGestureForTests(CefRefPtr<CefFrame> frame,
-                                                 const CefString& javascript);
+/*--cef(source=library)--*/
+class CefUnresponsiveProcessCallback : public virtual CefBaseRefCounted {
+ public:
+  ///
+  /// Reset the timeout for the unresponsive process.
+  ///
+  /*--cef()--*/
+  virtual void Wait() = 0;
 
-///
-/// Set the DIR_SRC_TEST_DATA_ROOT directory used to load test data. Must be
-/// configured when running from a CEF binary distribution. Defaults to the
-/// "chromium/src" directory when running from a local CEF/Chromium build. |dir|
-/// must be an absolute path.
-///
-/*--cef()--*/
-void CefSetDataDirectoryForTests(const CefString& dir);
+  ///
+  /// Terminate the unresponsive process.
+  ///
+  /*--cef()--*/
+  virtual void Terminate() = 0;
+};
 
-///
-/// Returns true if |feature_name| is enabled by default, command line or field
-/// trial. This supports a short list of curated values that are queried by unit
-/// tests.
-///
-/*--cef()--*/
-bool CefIsFeatureEnabledForTests(const CefString& feature_name);
-
-#endif  // CEF_INCLUDE_TEST_CEF_TEST_HELPERS_H_
+#endif  // CEF_INCLUDE_CEF_UNRESPONSIVE_PROCESS_CALLBACK_H_

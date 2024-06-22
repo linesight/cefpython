@@ -380,6 +380,13 @@ typedef enum {
   /// a requesting-origin/top-level-site combination and persistent.
   CEF_CONTENT_SETTING_TYPE_TOP_LEVEL_TPCD_TRIAL,
 
+  /// Content Setting for a first-party origin trial that allows websites to
+  /// enable third-party cookie deprecation.
+  /// ALLOW (default): no effect (e.g. third-party cookies allowed, if not
+  ///                  blocked otherwise).
+  /// BLOCK: third-party cookies blocked, but 3PCD mitigations enabled.
+  CEF_CONTENT_SETTING_TOP_LEVEL_TPCD_ORIGIN_TRIAL,
+
   /// Content setting used to indicate whether entering picture-in-picture
   /// automatically should be enabled.
   CEF_CONTENT_SETTING_TYPE_AUTO_PICTURE_IN_PICTURE,
@@ -418,7 +425,25 @@ typedef enum {
   /// Whether an application can enumerate audio output device.
   CEF_CONTENT_SETTING_TYPE_SPEAKER_SELECTION,
 
-  CEF_CONTENT_SETTING_TYPE_NUM_TYPES,
+  /// Content settings for access to the Direct Sockets API.
+  CEF_CONTENT_SETTING_TYPE_DIRECT_SOCKETS,
+
+  /// Keyboard Lock API allows a site to capture keyboard inputs that would
+  /// otherwise be handled by the OS or the browser.
+  CEF_CONTENT_SETTING_TYPE_KEYBOARD_LOCK,
+
+  /// Pointer Lock API allows a site to hide the cursor and have exclusive
+  /// access to mouse inputs.
+  CEF_CONTENT_SETTING_TYPE_POINTER_LOCK,
+
+  /// Website setting which is used for UnusedSitePermissionsService to store
+  /// auto-revoked notification permissions from abusive sites.
+  REVOKED_ABUSIVE_NOTIFICATION_PERMISSIONS,
+
+  /// Content setting that controls tracking protection status per site.
+  /// BLOCK: Protections enabled. This is the default state.
+  /// ALLOW: Protections disabled.
+  TRACKING_PROTECTION,
 } cef_content_setting_types_t;
 
 ///
