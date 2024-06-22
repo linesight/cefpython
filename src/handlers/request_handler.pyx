@@ -457,7 +457,9 @@ cdef public cpp_bool RequestHandler_OnCertificateError(
 
 cdef public void RequestHandler_OnRendererProcessTerminated(
         CefRefPtr[CefBrowser] cefBrowser,
-        cef_types.cef_termination_status_t cefStatus
+        cef_types.cef_termination_status_t cefStatus,
+        int cefErrorCode,
+        const CefString& cefErrorString
         ) except * with gil:
     # TODO: proccess may crash during browser creation. Let this callback 
     # to be set either through  cefpython.SetGlobalClientCallback() 
@@ -476,7 +478,8 @@ cdef public void RequestHandler_OnRendererProcessTerminated(
         clientCallback = pyBrowser.GetClientCallback(
                 "OnRendererProcessTerminated")
         if clientCallback:
-            clientCallback(browser=pyBrowser, status=cefStatus)
+            clientCallback(browser=pyBrowser, status=cefStatus, 
+                error_code=cefErrorCode, error_string=CefToPyString(cefErrorString))
     except:
         (exc_type, exc_value, exc_trace) = sys.exc_info()
         sys.excepthook(exc_type, exc_value, exc_trace)

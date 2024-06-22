@@ -6,7 +6,7 @@
 #include "include/base/cef_logging.h"
 
 
-void DownloadHandler::OnBeforeDownload(
+bool DownloadHandler::OnBeforeDownload(
                             CefRefPtr<CefBrowser> browser,
                             CefRefPtr<CefDownloadItem> download_item,
                             const CefString& suggested_name,

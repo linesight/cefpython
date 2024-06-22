@@ -63,7 +63,9 @@ public:
                             CefRefPtr<CefCallback> callback) override;
 
     void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
-                                   cef_termination_status_t status) override;
+                                   cef_termination_status_t status,
+                                   int error_code,
+                                   const CefString& error_string) override;
 
     void OnPluginCrashed(CefRefPtr<CefBrowser> browser,
                          const CefString& plugin_path) ;
