@@ -293,7 +293,7 @@ def setup_environ():
         print("[build.py] PYTHON_INCLUDE: {python_include}"
               .format(python_include=os.environ["PYTHON_INCLUDE"]))
 
-        os.environ["CEF_CCFLAGS"] = "-std=gnu++11 -DNDEBUG -Wall -Werror"
+        os.environ["CEF_CCFLAGS"] = "-std=gnu++17 -DNDEBUG -DCEF_X11 -Wall -Werror "
         if LINUX:
             # Don't warn about deprecated GDK/GTK functions.
             os.environ["CEF_CCFLAGS"] += " -Wno-deprecated-declarations"

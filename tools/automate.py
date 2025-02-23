@@ -977,7 +977,7 @@ def run_git(command_line, working_dir):
 def run_automate_git():
     """Run CEF automate-git.py using Python 2.7."""
     script = os.path.join(Options.cefpython_dir, "tools", "automate-git.py")
-    """
+    r"""
     Example automate-git.py command:
         C:\chromium>call python automate-git.py --download-dir=./test/
         --branch=2526 --no-debug-build --verbose-build --with-pgo-profiles

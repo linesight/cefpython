@@ -51,7 +51,7 @@ std::string GetDescriptionFromMimeType(const std::string& mime_type) {
   return std::string();
 }
 
-void AddFilters(GtkFileChooser* chooser,
+[[maybe_unused]] void AddFilters(GtkFileChooser* chooser,
                 const std::vector<CefString>& accept_filters,
                 bool include_all_files,
                 std::vector<GtkFileFilter*>* filters) {
@@ -141,142 +141,142 @@ bool ClientDialogHandlerGtk::OnFileDialog(
     const CefString& title,
     const CefString& default_file_path,
     const std::vector<CefString>& accept_filters,
-    int selected_accept_filter,
     CefRefPtr<CefFileDialogCallback> callback) {
-  std::vector<CefString> files;
+  // std::vector<CefString> files;
+  // int selected_accept_filter = 0; // linesight TODO
 
-  GtkFileChooserAction action;
-  const gchar* accept_button;
+  // GtkFileChooserAction action;
+  // const gchar* accept_button;
 
-  // Remove any modifier flags.
-  FileDialogMode mode_type =
-      static_cast<FileDialogMode>(mode & FILE_DIALOG_TYPE_MASK);
+  // // Remove any modifier flags.
+  // FileDialogMode mode_type =
+  //     static_cast<FileDialogMode>(mode & FILE_DIALOG_TYPE_MASK);
 
-  if (mode_type == FILE_DIALOG_OPEN || mode_type == FILE_DIALOG_OPEN_MULTIPLE) {
-    action = GTK_FILE_CHOOSER_ACTION_OPEN;
-    accept_button = GTK_STOCK_OPEN;
-  } else if (mode_type == FILE_DIALOG_OPEN_FOLDER) {
-    action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
-    accept_button = GTK_STOCK_OPEN;
-  } else if (mode_type == FILE_DIALOG_SAVE) {
-    action = GTK_FILE_CHOOSER_ACTION_SAVE;
-    accept_button = GTK_STOCK_SAVE;
-  } else {
-    NOTREACHED();
-    return false;
-  }
+  // if (mode_type == FILE_DIALOG_OPEN || mode_type == FILE_DIALOG_OPEN_MULTIPLE) {
+  //   action = GTK_FILE_CHOOSER_ACTION_OPEN;
+  //   accept_button = GTK_STOCK_OPEN;
+  // } else if (mode_type == FILE_DIALOG_OPEN_FOLDER) {
+  //   action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
+  //   accept_button = GTK_STOCK_OPEN;
+  // } else if (mode_type == FILE_DIALOG_SAVE) {
+  //   action = GTK_FILE_CHOOSER_ACTION_SAVE;
+  //   accept_button = GTK_STOCK_SAVE;
+  // } else {
+  //   NOTREACHED();
+  //   return false;
+  // }
 
-  std::string title_str;
-  if (!title.empty()) {
-    title_str = title;
-  } else {
-    switch (mode_type) {
-      case FILE_DIALOG_OPEN:
-        title_str = "Open File";
-        break;
-      case FILE_DIALOG_OPEN_MULTIPLE:
-        title_str = "Open Files";
-        break;
-      case FILE_DIALOG_OPEN_FOLDER:
-        title_str = "Open Folder";
-        break;
-      case FILE_DIALOG_SAVE:
-        title_str = "Save File";
-        break;
-      default:
-        break;
-    }
-  }
+  // std::string title_str;
+  // if (!title.empty()) {
+  //   title_str = title;
+  // } else {
+  //   switch (mode_type) {
+  //     case FILE_DIALOG_OPEN:
+  //       title_str = "Open File";
+  //       break;
+  //     case FILE_DIALOG_OPEN_MULTIPLE:
+  //       title_str = "Open Files";
+  //       break;
+  //     case FILE_DIALOG_OPEN_FOLDER:
+  //       title_str = "Open Folder";
+  //       break;
+  //     case FILE_DIALOG_SAVE:
+  //       title_str = "Save File";
+  //       break;
+  //     default:
+  //       break;
+  //   }
+  // }
 
-  GtkWindow* window = CefBrowser_GetGtkWindow(browser);
-  if (!window)
-    return false;
+  // GtkWindow* window = CefBrowser_GetGtkWindow(browser);
+  // if (!window)
+  //   return false;
 
-  GtkWidget* dialog = gtk_file_chooser_dialog_new(
-      title_str.c_str(), GTK_WINDOW(window), action, GTK_STOCK_CANCEL,
-      GTK_RESPONSE_CANCEL, accept_button, GTK_RESPONSE_ACCEPT, NULL);
+  // GtkWidget* dialog = gtk_file_chooser_dialog_new(
+  //     title_str.c_str(), GTK_WINDOW(window), action, GTK_STOCK_CANCEL,
+  //     GTK_RESPONSE_CANCEL, accept_button, GTK_RESPONSE_ACCEPT, NULL);
 
-  if (mode_type == FILE_DIALOG_OPEN_MULTIPLE)
-    gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), TRUE);
+  // if (mode_type == FILE_DIALOG_OPEN_MULTIPLE)
+  //   gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), TRUE);
 
-  if (mode_type == FILE_DIALOG_SAVE) {
-    gtk_file_chooser_set_do_overwrite_confirmation(
-        GTK_FILE_CHOOSER(dialog), !!(mode & FILE_DIALOG_OVERWRITEPROMPT_FLAG));
-  }
+  // if (mode_type == FILE_DIALOG_SAVE) {
+  //   gtk_file_chooser_set_do_overwrite_confirmation(
+  //       GTK_FILE_CHOOSER(dialog), !!(mode & FILE_DIALOG_OVERWRITEPROMPT_FLAG));
+  // }
 
-  gtk_file_chooser_set_show_hidden(GTK_FILE_CHOOSER(dialog),
-                                   !(mode & FILE_DIALOG_HIDEREADONLY_FLAG));
+  // gtk_file_chooser_set_show_hidden(GTK_FILE_CHOOSER(dialog),
+  //                                  !(mode & FILE_DIALOG_HIDEREADONLY_FLAG));
 
-  if (!default_file_path.empty() && mode_type == FILE_DIALOG_SAVE) {
-    const std::string& file_path = default_file_path;
-    bool exists = false;
+  // if (!default_file_path.empty() && mode_type == FILE_DIALOG_SAVE) {
+  //   const std::string& file_path = default_file_path;
+  //   bool exists = false;
 
-    struct stat sb;
-    if (stat(file_path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode)) {
-      // Use the directory and name of the existing file.
-      gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(dialog), file_path.data());
-      exists = true;
-    }
+  //   struct stat sb;
+  //   if (stat(file_path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode)) {
+  //     // Use the directory and name of the existing file.
+  //     gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(dialog), file_path.data());
+  //     exists = true;
+  //   }
 
-    if (!exists) {
-      // Set the current file name but let the user choose the directory.
-      std::string file_name_str = file_path;
-      const char* file_name = basename(const_cast<char*>(file_name_str.data()));
-      gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), file_name);
-    }
-  }
+  //   if (!exists) {
+  //     // Set the current file name but let the user choose the directory.
+  //     std::string file_name_str = file_path;
+  //     const char* file_name = basename(const_cast<char*>(file_name_str.data()));
+  //     gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), file_name);
+  //   }
+  // }
 
-  std::vector<GtkFileFilter*> filters;
-  AddFilters(GTK_FILE_CHOOSER(dialog), accept_filters, true, &filters);
-  if (selected_accept_filter < static_cast<int>(filters.size())) {
-    gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(dialog),
-                                filters[selected_accept_filter]);
-  }
+  // std::vector<GtkFileFilter*> filters;
+  // AddFilters(GTK_FILE_CHOOSER(dialog), accept_filters, true, &filters);
+  // if (selected_accept_filter < static_cast<int>(filters.size())) {
+  //   gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(dialog),
+  //                               filters[selected_accept_filter]);
+  // }
 
-  bool success = false;
+  // bool success = false;
 
-  if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
-    if (mode_type == FILE_DIALOG_OPEN || mode_type == FILE_DIALOG_OPEN_FOLDER ||
-        mode_type == FILE_DIALOG_SAVE) {
-      char* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-      files.push_back(std::string(filename));
-      success = true;
-    } else if (mode_type == FILE_DIALOG_OPEN_MULTIPLE) {
-      GSList* filenames =
-          gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
-      if (filenames) {
-        for (GSList* iter = filenames; iter != NULL;
-             iter = g_slist_next(iter)) {
-          std::string path(static_cast<char*>(iter->data));
-          g_free(iter->data);
-          files.push_back(path);
-        }
-        g_slist_free(filenames);
-        success = true;
-      }
-    }
-  }
+  // if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+  //   if (mode_type == FILE_DIALOG_OPEN || mode_type == FILE_DIALOG_OPEN_FOLDER ||
+  //       mode_type == FILE_DIALOG_SAVE) {
+  //     char* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+  //     files.push_back(std::string(filename));
+  //     success = true;
+  //   } else if (mode_type == FILE_DIALOG_OPEN_MULTIPLE) {
+  //     GSList* filenames =
+  //         gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
+  //     if (filenames) {
+  //       for (GSList* iter = filenames; iter != NULL;
+  //            iter = g_slist_next(iter)) {
+  //         std::string path(static_cast<char*>(iter->data));
+  //         g_free(iter->data);
+  //         files.push_back(path);
+  //       }
+  //       g_slist_free(filenames);
+  //       success = true;
+  //     }
+  //   }
+  // }
 
-  int filter_index = selected_accept_filter;
-  if (success) {
-    GtkFileFilter* selected_filter =
-        gtk_file_chooser_get_filter(GTK_FILE_CHOOSER(dialog));
-    if (selected_filter != NULL) {
-      for (size_t x = 0; x < filters.size(); ++x) {
-        if (filters[x] == selected_filter) {
-          filter_index = x;
-          break;
-        }
-      }
-    }
-  }
+  // int filter_index = selected_accept_filter;
+  // if (success) {
+  //   GtkFileFilter* selected_filter =
+  //       gtk_file_chooser_get_filter(GTK_FILE_CHOOSER(dialog));
+  //   if (selected_filter != NULL) {
+  //     for (size_t x = 0; x < filters.size(); ++x) {
+  //       if (filters[x] == selected_filter) {
+  //         filter_index = x;
+  //         break;
+  //       }
+  //     }
+  //   }
+  // }
 
-  gtk_widget_destroy(dialog);
+  // gtk_widget_destroy(dialog);
 
-  if (success)
-    callback->Continue(filter_index, files);
-  else
-    callback->Cancel();
+  // if (success)
+  //   callback->Continue(filter_index, files);
+  // else
+  //   callback->Cancel();
 
   return true;
 }
@@ -378,8 +378,8 @@ void ClientDialogHandlerGtk::OnResetDialogState(CefRefPtr<CefBrowser> browser) {
   if (!gtk_dialog_)
     return;
   gtk_widget_destroy(gtk_dialog_);
-  gtk_dialog_ = NULL;
-  js_dialog_callback_ = NULL;
+  gtk_dialog_ = nullptr;
+  js_dialog_callback_ = nullptr;
 }
 
 // static
@@ -401,5 +401,5 @@ void ClientDialogHandlerGtk::OnDialogResponse(GtkDialog* dialog,
       NOTREACHED();
   }
 
-  handler->OnResetDialogState(NULL);
+  handler->OnResetDialogState(nullptr);
 }

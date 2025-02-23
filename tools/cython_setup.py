@@ -204,13 +204,14 @@ def set_compiler_options(options):
 
         extra_compile_args.extend([
                 "-DNDEBUG",
-                "-std=gnu++11",
+                "-std=gnu++17",
+                "-fpermissive",
         ])
 
     if LINUX:
         os.environ["CC"] = "g++"
         os.environ["CXX"] = "g++"
-        extra_compile_args.extend(["-std=gnu++11"])
+        extra_compile_args.extend(["-std=gnu++17"])
 
         # Fix "ImportError ... undefined symbol ..." caused by CEF's
         # include/base/ headers by adding the -flto flag (Issue #230).
@@ -323,7 +324,7 @@ def get_include_dirs():
         include_dirs.extend([LINUX_DIR])
         include_dirs.extend(common_include_dirs)
         include_dirs.extend([
-            '/usr/include/gtk-2.0',
+            '/usr/include/gtk-3.0',
             '/usr/include/glib-2.0',
             '/usr/include/gtk-unix-print-2.0',
             '/usr/include/cairo',
@@ -339,7 +340,7 @@ def get_include_dirs():
             '/usr/lib/i386-linux-gnu/gtk-unix-print-2.0',
             '/usr/lib/i386-linux-gnu/glib-2.0/include',
             # Fedora
-            '/usr/lib64/gtk-2.0/include',
+            '/usr/lib64/gtk-3.0/include',
             '/usr/lib64/gtk-unix-print-2.0',
             '/usr/lib64/glib-2.0/include',
             '/usr/lib/gtk-2.0/include',

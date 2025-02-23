@@ -1,4 +1,4 @@
-"""
+r"""
 Example of embedding CEF browser using PySDL2 library.
 
 Requires PySDL2 and SDL2 libraries, see install instructions further

@@ -56,7 +56,7 @@ class CefURLRequestClient;
 /*--cef(source=library)--*/
 class CefURLRequest : public virtual CefBaseRefCounted {
  public:
-  typedef cef_urlrequest_status_t Status;
+  // typedef cef_urlrequest_status_t Status;
   typedef cef_errorcode_t ErrorCode;
 
   ///
@@ -97,7 +97,7 @@ class CefURLRequest : public virtual CefBaseRefCounted {
   /// Returns the request status.
   ///
   /*--cef(default_retval=UR_UNKNOWN)--*/
-  virtual Status GetRequestStatus() = 0;
+  virtual cef_urlrequest_status_t GetRequestStatus() = 0;
 
   ///
   /// Returns the request error if status is UR_CANCELED or UR_FAILED, or 0

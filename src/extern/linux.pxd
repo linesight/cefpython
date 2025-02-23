@@ -2,10 +2,9 @@
 # All rights reserved. Licensed under BSD 3-clause license.
 # Project website: https://github.com/cztomczak/cefpython
 
-cdef extern from "gtk/gtk.h" nogil:
-    ctypedef void* GdkNativeWindow
+cdef extern from "gtk/gtkx.h" nogil:
     ctypedef void* GtkWidget
-    cdef GtkWidget* gtk_plug_new(GdkNativeWindow socket_id)
+    cdef GtkWidget* gtk_plug_new(unsigned long socket_id)
     cdef void gtk_widget_show(GtkWidget* widget)
 
     ctypedef char* XPointer

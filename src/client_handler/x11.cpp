@@ -6,6 +6,7 @@
 //       targets during build.
 
 #include "x11.h"
+#include <gtk/gtkx.h>
 #include "include/base/cef_logging.h"
 
 int XErrorHandlerImpl(Display *display, XErrorEvent *event) {
