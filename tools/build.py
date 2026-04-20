@@ -644,23 +644,23 @@ def except_all_missing(content):
     patterns = list()
     patterns.append(
         r"\bcp?def\s+"
-        "((int|short|long|double|char|unsigned|float|double|cpp_bool"
-        "|cpp_string|cpp_wstring|uintptr_t|void"
-        "|int32|uint32|int64|uint64"
-        "|int32_t|uint32_t|int64_t|uint64_t"
-        "|CefString)\s+)+"
-        "\w+\([^)]*\)\s*(with\s+(gil|nogil))?\s*:")
+        r"((int|short|long|double|char|unsigned|float|double|cpp_bool"
+        r"|cpp_string|cpp_wstring|uintptr_t|void"
+        r"|int32|uint32|int64|uint64"
+        r"|int32_t|uint32_t|int64_t|uint64_t"
+        r"|CefString)\s+)+"
+        r"\w+\([^)]*\)\s*(with\s+(gil|nogil))?\s*:")
     patterns.append(
         r"\bcp?def\s+"
         # A template ends with bracket: CefRefPtr[CefBrowser]
         # or a pointer ends with asterisk: CefBrowser*
-        "[^\s]+[\]*]\s+"
-        "\w+\([^)]*\)\s*(with\s+(gil|nogil))?\s*:")
+        r"[^\s]+[\]*]\s+"
+        r"\w+\([^)]*\)\s*(with\s+(gil|nogil))?\s*:")
     patterns.append(
         r"\bcp?def\s+"
         # A reference, eg. CefString&
-        "[^\s]+&\s+"
-        "\w+\([^)]*\)\s*(with\s+(gil|nogil))?\s*:")
+        r"[^\s]+&\s+"
+        r"\w+\([^)]*\)\s*(with\s+(gil|nogil))?\s*:")
 
     match = None
     for pattern in patterns:
