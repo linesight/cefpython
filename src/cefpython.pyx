@@ -627,10 +627,10 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
     # guarantees that CreateBrowserSync() can be called immediately after
     # Initialize() without hitting the deferred-creation path or getting
     # a null browser from CefBrowserHost::CreateBrowserSync().
-    # 200 * 10ms = 2 seconds max; OnContextInitialized typically fires
-    # within the first few iterations.
+    # Use a generous ceiling (30s) for CI environments where utility
+    # subprocesses (storage service) crash and delay context initialization.
     if ret:
-        for _ in range(600):
+        for _ in range(3000):
             with nogil:
                 CefDoMessageLoopWork()
             if g_context_initialized:
@@ -638,7 +638,7 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
             time.sleep(0.01)
         if not g_context_initialized:
             Debug("CefInitialize() WARNING: OnContextInitialized not received"
-                  " within 6 seconds")
+                  " within 30 seconds")
 
     if sys.platform.startswith("linux"):
         # Install by default.
@@ -676,8 +676,17 @@ def CreateBrowserSync(windowInfo=None,
     # Defer browser creation until OnContextInitialized fires inside MessageLoop.
     # In CEF 123+, browser creation before OnContextInitialized causes
     # blink.mojom.WidgetHost rejection and renderer shows no content.
-    # Initialize() pumps the loop until OnContextInitialized fires, so this
-    # path is only taken if CreateBrowserSync() is called before Initialize().
+    # Initialize() pumps the loop for up to 30s; if still not initialized
+    # (e.g. slow CI), pump an additional 30s before giving up.
+    if not g_context_initialized:
+        Debug("CreateBrowserSync(): OnContextInitialized not yet received,"
+              " pumping message loop")
+        for _ in range(3000):
+            with nogil:
+                CefDoMessageLoopWork()
+            if g_context_initialized:
+                break
+            time.sleep(0.01)
     if not g_context_initialized:
         Debug("CreateBrowserSync() deferred until OnContextInitialized")
         g_pending_browsers.append({
