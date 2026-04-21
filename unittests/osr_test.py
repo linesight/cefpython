@@ -124,6 +124,9 @@ class OsrTest_IsolatedTest(unittest.TestCase):
             # OnContextInitialized from firing.
             switches["in-process-gpu"] = ""
             switches["no-zygote"] = ""
+            # Run the storage service in-process so it doesn't need the
+            # Mojo bootstrap FD (global descriptor 7) that fails in CI.
+            switches["disable-features"] = "StorageServiceOutOfProcess"
         browser_settings = {
             # Tweaking OSR performance (Issue #240)
             "windowless_frame_rate": 30,  # Default frame rate in CEF is 30

@@ -158,6 +158,9 @@ class MainTest_IsolatedTest(unittest.TestCase):
             # OnContextInitialized from firing and browser creation fails.
             switches["in-process-gpu"] = ""
             switches["no-zygote"] = ""
+            # Run the storage service in-process so it doesn't need the
+            # Mojo bootstrap FD (global descriptor 7) that fails in CI.
+            switches["disable-features"] = "StorageServiceOutOfProcess"
         cef.Initialize(settings, switches=switches)
         subtest_message("cef.Initialize() ok")
 
