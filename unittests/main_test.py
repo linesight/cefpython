@@ -1,4 +1,4 @@
-# Copyright (c) 2016 CEF Python, see the Authors file.
+﻿# Copyright (c) 2016 CEF Python, see the Authors file.
 # All rights reserved. Licensed under BSD 3-clause license.
 # Project website: https://github.com/cztomczak/cefpython
 
@@ -144,20 +144,37 @@ class MainTest_IsolatedTest(unittest.TestCase):
         # Chrome 130+ blocks window.open() called without a user gesture.
         switches = {"disable-popup-blocking": ""}
         if LINUX:
-            # Sandbox setup (user-namespace) fails on CI runners.
-            switches["no-sandbox"] = ""
-            # /dev/shm is too small in CI containers; renderer subprocess
-            # fails shared-memory descriptor lookup (global descriptor 7).
+            # Open a GDK/X11 display connection before CEF initialises so
+            # that gdk_display_get_default() returns a valid display.  On a
+            # desktop session this is required for the browser window to be
+            # visible; on xvfb (CI) it is a no-op.
+            init_gtk()
+            # cefpython does not ship a chrome-sandbox (setuid) binary.
+            # Disable SUID/namespace sandboxes; Chrome falls back to seccomp-BPF
+            # which keeps GlobalDescriptors key 7 registered for subprocesses.
+            # Do NOT pass --no-sandbox: it skips key 7 registration but encodes
+            # it in --pseudonymization-salt-handle, causing a CHECK-crash.
+            switches["disable-setuid-sandbox"] = ""
+                    # /dev/shm is too small in CI containers.
             switches["disable-dev-shm-usage"] = ""
             # GPU acceleration is not available under xvfb.
             switches["disable-gpu"] = ""
             switches["disable-gpu-compositing"] = ""
-            # Run GPU process inside the browser process. Without this,
-            # the GPU subprocess is spawned during CefInitialize() and
-            # fails the global descriptor lookup (key 7), which prevents
-            # OnContextInitialized from firing and browser creation fails.
+            # Run GPU process inside the browser process so it is not
+            # spawned during CefInitialize() where it would fail.
             switches["in-process-gpu"] = ""
             switches["no-zygote"] = ""
+            # Force X11 rendering via XWayland.  On Ubuntu 24 GNOME/Wayland
+            # Chrome 130+ defaults to the Wayland Ozone backend when
+            # WAYLAND_DISPLAY is set; cefpython uses raw X11 APIs so the
+            # window would never appear.  On CI (xvfb) this is a no-op.
+            switches["ozone-platform"] = "x11"
+            # Run utility services in-process so they don't each need a
+            # separate subprocess (reduces spawn overhead on CI).
+            switches["disable-features"] = "StorageServiceOutOfProcess"
+            switches["enable-features"] = "NetworkServiceInProcess"
+            # Suppress the GNOME Keyring unlock prompt on desktop sessions.
+            switches["password-store"] = "basic"
         if MAC:
             # macOS CI runners run in a background bootstrap domain where
             # MachPortRendezvousServer lookups fail for child processes.

@@ -307,6 +307,11 @@ cdef py_bool g_cef_initialized = False
 cdef py_bool g_context_initialized = False
 cdef list g_pending_browsers = []
 
+IF UNAME_SYSNAME == "Linux":
+    # Keeps ctypes callback objects alive for the duration of gtk_main() and
+    # any pending one-shot GLib timers (Xwayland XReparentWindow scheduling).
+    g_linux_reparent_callbacks = []
+
 cdef dict g_globalClientCallbacks = {}
 
 # -----------------------------------------------------------------------------
@@ -571,14 +576,47 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         if "use-angle" not in g_commandLineSwitches:
             g_commandLineSwitches["use-angle"] = "gl"
 
+    IF UNAME_SYSNAME == "Linux":
+        # Initialize GTK so GDK has a display connection before CefInitialize.
+        _linux_gtk_init()
+        # Auto-apply switches/settings required for CEF 146 on Linux/Xwayland.
+        # Uses setdefault so user-supplied values are never overwritten.
+        _linux_apply_initialize_defaults(application_settings,
+                                         g_commandLineSwitches)
+        # Pre-seed Chrome profile files to prevent the profile-picker keepalive
+        # from blocking OnContextInitialized (Chrome 146).
+        if application_settings.get("cache_path"):
+            _linux_setup_profile(application_settings["cache_path"])
+
     cdef CefRefPtr[CefApp] cefApp = <CefRefPtr[CefApp]?>new CefPythonApp()
 
     IF UNAME_SYSNAME == "Windows":
         cdef HINSTANCE hInstance = GetModuleHandle(NULL)
         cdef CefMainArgs cefMainArgs = CefMainArgs(hInstance)
     ELIF UNAME_SYSNAME == "Linux":
-        # TODO: use the CefMainArgs(int argc, char** argv) constructor.
-        cdef CefMainArgs cefMainArgs
+        # Build a complete argv so the browser process sees all switches.
+        # OnBeforeChildProcessLaunch only reaches child processes; switches
+        # like --in-process-gpu and --single-process must be in the browser
+        # process's own command line to take effect.
+        _cefMainArgvPyList = [sys.executable.encode('utf-8')]
+        for _cefArgK, _cefArgV in g_commandLineSwitches.items():
+            if _cefArgV:
+                _cefMainArgvPyList.append(
+                    ("--{}={}".format(_cefArgK, _cefArgV)).encode('utf-8'))
+            else:
+                _cefMainArgvPyList.append(
+                    ("--{}".format(_cefArgK)).encode('utf-8'))
+        cdef int _cefMainArgc = len(_cefMainArgvPyList)
+        cdef char** _cefMainArgvC = \
+                <char**>malloc(_cefMainArgc * sizeof(char*))
+        cdef bytes _cefMainArgvItem
+        cdef int _cefMainArgvI
+        for _cefMainArgvI in range(_cefMainArgc):
+            _cefMainArgvItem = _cefMainArgvPyList[_cefMainArgvI]
+            _cefMainArgvC[_cefMainArgvI] = _cefMainArgvItem
+        cdef CefMainArgs cefMainArgs = CefMainArgs(_cefMainArgc, _cefMainArgvC)
+        # _cefMainArgvPyList keeps the bytes alive; freed below after
+        # CefInitialize() has processed the command line.
     ELIF UNAME_SYSNAME == "Darwin":
         # TODO: use the CefMainArgs(int argc, char** argv) constructor.
         cdef CefMainArgs cefMainArgs
@@ -594,8 +632,19 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         g_applicationSettings[key] = copy.deepcopy(application_settings[key])
 
     cdef CefSettings cefApplicationSettings
-    # No sandboxing for the subprocesses
-    cefApplicationSettings.no_sandbox = 1
+    IF UNAME_SYSNAME == "Linux":
+        # On Linux, leave no_sandbox=0 so Chrome's startup code registers the
+        # Mojo IPC bootstrap fd (GlobalDescriptors key 7) for every subprocess.
+        # Setting no_sandbox=1 would cause BasicStartupComplete() to append
+        # --no-sandbox before fd registration, causing all subprocesses to crash
+        # with "Failed global descriptor lookup: 7". Sandbox behaviour is instead
+        # controlled via --disable-setuid-sandbox / --disable-namespace-sandbox
+        # command-line switches passed by the caller.
+        pass
+    ELSE:
+        # On Windows/macOS the sandbox helper binary is not shipped with
+        # cefpython, so disable sandboxing entirely.
+        cefApplicationSettings.no_sandbox = 1
     SetApplicationSettings(application_settings, &cefApplicationSettings)
 
     # External message pump
@@ -611,6 +660,8 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
     cdef cpp_bool ret
     with nogil:
         ret = CefInitialize(cefMainArgs, cefApplicationSettings, cefApp, NULL)
+    IF UNAME_SYSNAME == "Linux":
+        free(_cefMainArgvC)
 
     global g_cef_initialized
     g_cef_initialized = True
@@ -622,15 +673,22 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
     # guarantees that CreateBrowserSync() can be called immediately after
     # Initialize() without hitting the deferred-creation path or getting
     # a null browser from CefBrowserHost::CreateBrowserSync().
-    # OnContextInitialized typically fires within the first few iterations;
-    # allow up to 30 seconds for slow CI environments.
+    # Use a generous ceiling (30s) for CI environments where utility
+    # subprocesses (storage service) crash and delay context initialization.
     if ret:
-        for _ in range(3000):
-            with nogil:
-                CefDoMessageLoopWork()
-            if g_context_initialized:
-                break
-            time.sleep(0.01)
+        # On Linux, skip this pump entirely: the Ozone X11 backend needs
+        # gtk_main() (a blocking GLib main loop) running before
+        # OnContextInitialized can fire.  The external caller (hello_world.py,
+        # test harnesses) must enter gtk_main() immediately after Initialize()
+        # and drive the loop via the GLib timer callback.
+        # On Windows/macOS, pump up to 30 s as before.
+        IF UNAME_SYSNAME != "Linux":
+            for _ in range(3000):
+                with nogil:
+                    CefDoMessageLoopWork()
+                if g_context_initialized:
+                    break
+                time.sleep(0.01)
         if not g_context_initialized:
             Debug("CefInitialize() WARNING: OnContextInitialized not received"
                   " within 30 seconds")
@@ -671,8 +729,18 @@ def CreateBrowserSync(windowInfo=None,
     # Defer browser creation until OnContextInitialized fires inside MessageLoop.
     # In CEF 123+, browser creation before OnContextInitialized causes
     # blink.mojom.WidgetHost rejection and renderer shows no content.
-    # Initialize() pumps the loop until OnContextInitialized fires, so this
-    # path is only taken if CreateBrowserSync() is called before Initialize().
+    # Initialize() pumps the loop for up to 30s; if still not initialized
+    # (e.g. slow CI), pump an additional 30s before giving up.
+    if not g_context_initialized:
+        Debug("CreateBrowserSync(): OnContextInitialized not yet received,"
+              " pumping message loop")
+        IF UNAME_SYSNAME != "Linux":
+            for _ in range(3000):
+                with nogil:
+                    CefDoMessageLoopWork()
+                if g_context_initialized:
+                    break
+                time.sleep(0.01)
     if not g_context_initialized:
         Debug("CreateBrowserSync() deferred until OnContextInitialized")
         g_pending_browsers.append({
@@ -729,6 +797,18 @@ def CreateBrowserSync(windowInfo=None,
         windowInfo.SetAsChild(0)
     elif not isinstance(windowInfo, WindowInfo):
         raise Exception("CreateBrowserSync() failed: windowInfo: invalid object")
+
+    # On Linux, when no parent window is given, auto-create a GTK toplevel
+    # so callers need no GTK-specific code (same API as Windows/Mac).
+    _linux_toplevel_state = None
+    IF UNAME_SYSNAME == "Linux":
+        if windowInfo.windowType == "child" and windowInfo.parentWindowHandle == 0:
+            _linux_toplevel_state = _linux_create_toplevel(
+                    window_title or "CEF Browser")
+            windowInfo.SetAsChild(
+                    _linux_toplevel_state['xid'],
+                    [0, 0, _linux_toplevel_state['width'],
+                           _linux_toplevel_state['height']])
 
     if window_title and windowInfo.parentWindowHandle == 0:
         windowInfo.windowName = window_title
@@ -828,6 +908,12 @@ def CreateBrowserSync(windowInfo=None,
             MacSetWindowTitle(cefBrowser,
                               PyStringToChar(windowInfo.windowName))
 
+    IF UNAME_SYSNAME == "Linux":
+        if windowInfo._linux_embed_info:
+            _linux_schedule_xembed(pyBrowser, windowInfo._linux_embed_info)
+        if _linux_toplevel_state is not None:
+            _linux_register_window_callbacks(pyBrowser, _linux_toplevel_state)
+
     return pyBrowser
 
 def MessageLoop():
@@ -837,8 +923,11 @@ def MessageLoop():
         global g_MessageLoop_called
         g_MessageLoop_called = True
 
-    with nogil:
-        CefRunMessageLoop()
+    IF UNAME_SYSNAME == "Linux":
+        _linux_message_loop()
+    ELSE:
+        with nogil:
+            CefRunMessageLoop()
 
 def MessageLoopWork():
     # Perform a single iteration of CEF message loop processing.
@@ -864,6 +953,9 @@ def SingleMessageLoop():
 
 def QuitMessageLoop():
     Debug("QuitMessageLoop()")
+    IF UNAME_SYSNAME == "Linux":
+        import ctypes as _ct
+        _ct.CDLL("libgtk-3.so.0").gtk_main_quit()
     with nogil:
         CefQuitMessageLoop()
 

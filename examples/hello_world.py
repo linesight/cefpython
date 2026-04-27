@@ -8,16 +8,18 @@
 # Setting DPI awareness programmatically via a call to cef.DpiAware.EnableHighDpiSupport
 # is problematic in Python, may not work and can cause display glitches.
 
+import sys
+
 from cefpython3 import cefpython as cef
 import platform
-import sys
 from packaging.version import Version as parse_version
 
 
 def main():
     check_versions()
-    sys.excepthook = cef.ExceptHook  # To shutdown all CEF processes on error
-    cef.Initialize()
+    sys.excepthook = cef.ExceptHook  # shut down all CEF processes on error
+    settings = {}
+    cef.Initialize(settings=settings)
     cef.CreateBrowserSync(url="https://www.google.com/",
                           window_title="Hello World!")
     cef.MessageLoop()
@@ -32,7 +34,8 @@ def check_versions():
     print("[hello_world.py] Python {ver} {arch}".format(
            ver=platform.python_version(),
            arch=platform.architecture()[0]))
-    assert parse_version(cef.__version__) >= parse_version("57.0"), "CEF Python v57.0+ required to run this"
+    assert parse_version(cef.__version__) >= parse_version("57.0"), \
+        "CEF Python v57.0+ required to run this"
 
 
 if __name__ == '__main__':

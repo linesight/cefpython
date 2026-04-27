@@ -1,4 +1,4 @@
-# Copyright (c) 2018 CEF Python, see the Authors file.
+﻿# Copyright (c) 2018 CEF Python, see the Authors file.
 # All rights reserved. Licensed under BSD 3-clause license.
 # Project website: https://github.com/cztomczak/cefpython
 
@@ -115,17 +115,26 @@ class OsrTest_IsolatedTest(unittest.TestCase):
             switches["enable-begin-frame-scheduling"] = ""
             switches["disable-surfaces"] = ""  # Required for PDF ext to work
         if LINUX:
-            # Sandbox setup fails on CI runners.
-            switches["no-sandbox"] = ""
-            # /dev/shm is too small in CI containers; renderer subprocess
-            # fails shared-memory descriptor lookup (global descriptor 7).
+            # Open a GDK/X11 display connection before CEF initialises.
+            init_gtk()
+            # cefpython does not ship a chrome-sandbox (setuid) binary.
+            # Disable SUID/namespace sandboxes; Chrome falls back to seccomp-BPF
+            # which keeps GlobalDescriptors key 7 registered for subprocesses.
+            # Do NOT pass --no-sandbox: it skips key 7 registration but encodes
+            # it in --pseudonymization-salt-handle, causing a CHECK-crash.
+            switches["disable-setuid-sandbox"] = ""
+                    # /dev/shm is too small in CI containers.
             switches["disable-dev-shm-usage"] = ""
-            # Run GPU process inside the browser process so the GPU
-            # subprocess is not spawned during CefInitialize() and does
-            # not fail the global descriptor lookup that blocks
-            # OnContextInitialized from firing.
+            # Run GPU process inside the browser process so it is not
+            # spawned during CefInitialize() where it would fail.
             switches["in-process-gpu"] = ""
             switches["no-zygote"] = ""
+            # Force X11 rendering via XWayland (see main_test.py for details).
+            switches["ozone-platform"] = "x11"
+            # Run utility services in-process so they don't each need a
+            # separate subprocess (reduces spawn overhead on CI).
+            switches["disable-features"] = "StorageServiceOutOfProcess"
+            switches["enable-features"] = "NetworkServiceInProcess"
         if MAC:
             # macOS CI runners run in a background bootstrap domain where
             # MachPortRendezvousServer lookups fail for child processes.
@@ -190,6 +199,16 @@ class OsrTest_IsolatedTest(unittest.TestCase):
 
         # Message loop
         run_message_loop()
+
+        # OnAccessibilityLocationChange arrives via a separate renderer IPC and
+        # can lag behind OnAccessibilityTreeChange on slow CI runners (e.g.
+        # Python 3.14 adds enough overhead that 1 s was insufficient).
+        # Poll in 100 ms batches, up to 3 extra seconds, and exit as soon as
+        # the flag is set so fast runners pay nothing extra.
+        for _ in range(30):
+            if accessibility_handler._OnAccessibilityLocationChange_True:
+                break
+            do_message_loop_work(10)
 
         # Close browser and clean reference
         browser.CloseBrowser(True)
