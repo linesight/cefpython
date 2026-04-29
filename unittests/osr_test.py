@@ -136,9 +136,6 @@ class OsrTest_IsolatedTest(unittest.TestCase):
             switches["disable-features"] = "StorageServiceOutOfProcess"
             switches["enable-features"] = "NetworkServiceInProcess"
         if MAC:
-            # The CI workflow runs tests via "launchctl asuser" so the browser
-            # process lives in the user login session bootstrap domain and child
-            # processes can look up MachPortRendezvousServer.
             # cefpython does not ship a chrome-sandbox binary.
             switches["no-sandbox"] = ""
             # No real GPU available on macOS CI runners.
