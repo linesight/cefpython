@@ -62,8 +62,10 @@ IF UNAME_SYSNAME == "Linux":
 
         _x11.XGetWindowAttributes.restype = _ct.c_int
 
-        # XWindowAttributes struct — fields up to map_state (LP64 layout).
-        # ctypes.Structure handles natural alignment automatically.
+        # Full XWindowAttributes struct (LP64 layout, 136 bytes).
+        # All fields must be declared; omitting trailing fields truncates the
+        # buffer to 96 bytes and XGetWindowAttributes writes all_event_masks
+        # (offset 96) past the end, corrupting adjacent heap memory.
         class _XWA(_ct.Structure):
             _fields_ = [
                 ("x", _ct.c_int), ("y", _ct.c_int),
@@ -75,6 +77,11 @@ IF UNAME_SYSNAME == "Linux":
                 ("backing_planes", _ct.c_ulong), ("backing_pixel", _ct.c_ulong),
                 ("save_under", _ct.c_int), ("colormap", _ct.c_ulong),
                 ("map_installed", _ct.c_int), ("map_state", _ct.c_int),
+                ("all_event_masks", _ct.c_long),
+                ("your_event_mask", _ct.c_long),
+                ("do_not_propagate_mask", _ct.c_long),
+                ("override_redirect", _ct.c_int),
+                ("screen", _ct.c_void_p),
             ]
 
         _browser_ref = [browser]
@@ -90,6 +97,16 @@ IF UNAME_SYSNAME == "Linux":
                           _xd=_xdisp):
             _cxid = _chrome_xid[0]
             try:
+                # width/height were captured at schedule time and may be 0
+                # if the parent window had not yet been laid out (e.g. the
+                # Qt container hadn't been sized by the layout manager yet).
+                # Query the parent's current size so the browser is resized
+                # to whatever the container actually is now.
+                _wa_p = _XWA()
+                if _x11.XGetWindowAttributes(_xd, _ct.c_ulong(_pxid),
+                                             _ct.byref(_wa_p)):
+                    if _wa_p.width > 0 and _wa_p.height > 0:
+                        _w, _h = _wa_p.width, _wa_p.height
                 _x11.XReparentWindow(_xd, _ct.c_ulong(_cxid),
                                      _ct.c_ulong(_pxid),
                                      _ct.c_int(0), _ct.c_int(0))
