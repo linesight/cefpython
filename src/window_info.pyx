@@ -116,7 +116,11 @@ cdef class WindowInfo:
             if parentWindowHandle == 0:
                 import os as _os
                 import warnings
-                if "WAYLAND_DISPLAY" in _os.environ:
+                # In native Wayland mode, parentWindowHandle=0 is correct and
+                # expected — CEF creates its own xdg_toplevel surface.  Only
+                # warn when the user is likely using an X11-incompatible toolkit
+                # without having opted into native Wayland.
+                if "WAYLAND_DISPLAY" in _os.environ and not _g_linux_wayland_mode:
                     warnings.warn(
                         "WindowInfo.SetAsChild: parentWindowHandle is 0 on Linux "
                         "in a Wayland session. The GUI toolkit is likely using the "

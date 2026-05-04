@@ -578,12 +578,15 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
             g_commandLineSwitches["use-angle"] = "gl"
 
     IF UNAME_SYSNAME == "Linux":
-        # Initialize GTK so GDK has a display connection before CefInitialize.
-        _linux_gtk_init()
-        # Auto-apply switches/settings required for CEF 146 on Linux/Xwayland.
-        # Uses setdefault so user-supplied values are never overwritten.
+        # Detect Wayland/X11 mode and apply switches BEFORE gtk_init so we
+        # know whether to open a GTK/X11 display connection at all.
         _linux_apply_initialize_defaults(application_settings,
                                          g_commandLineSwitches)
+        # In X11/Xwayland mode, open a GDK display connection before
+        # CefInitialize so the Ozone X11 backend can use it.
+        # In native Wayland mode, no GTK/X11 connection is needed or wanted.
+        if not _g_linux_wayland_mode:
+            _linux_gtk_init()
         # Pre-seed Chrome profile files to prevent the profile-picker keepalive
         # from blocking OnContextInitialized (Chrome 146).
         if application_settings.get("cache_path"):
@@ -694,8 +697,7 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
             Debug("CefInitialize() WARNING: OnContextInitialized not received"
                   " within 30 seconds")
 
-    if sys.platform.startswith("linux"):
-        # Install by default.
+    if sys.platform.startswith("linux") and not _g_linux_wayland_mode:
         WindowUtils.InstallX11ErrorHandlers()
 
 
@@ -799,17 +801,24 @@ def CreateBrowserSync(windowInfo=None,
     elif not isinstance(windowInfo, WindowInfo):
         raise Exception("CreateBrowserSync() failed: windowInfo: invalid object")
 
-    # On Linux, when no parent window is given, auto-create a GTK toplevel
-    # so callers need no GTK-specific code (same API as Windows/Mac).
+    # On Linux, when no parent window is given, provide a top-level window
+    # so callers need no toolkit-specific code (same API as Windows/Mac).
     _linux_toplevel_state = None
     IF UNAME_SYSNAME == "Linux":
         if windowInfo.windowType == "child" and windowInfo.parentWindowHandle == 0:
-            _linux_toplevel_state = _linux_create_toplevel(
-                    window_title or "CEF Browser")
-            windowInfo.SetAsChild(
-                    _linux_toplevel_state['xid'],
-                    [0, 0, _linux_toplevel_state['width'],
-                           _linux_toplevel_state['height']])
+            if _g_linux_wayland_mode:
+                # Native Wayland: CEF creates its own xdg_toplevel surface.
+                # Pass parent=0 with default bounds; no GTK window is needed.
+                _linux_toplevel_state = {'wayland': True}
+                windowInfo.SetAsChild(0, [0, 0, _LINUX_DEFAULT_WIDTH,
+                                            _LINUX_DEFAULT_HEIGHT])
+            else:
+                _linux_toplevel_state = _linux_create_toplevel(
+                        window_title or "CEF Browser")
+                windowInfo.SetAsChild(
+                        _linux_toplevel_state['xid'],
+                        [0, 0, _linux_toplevel_state['width'],
+                               _linux_toplevel_state['height']])
 
     if window_title and windowInfo.parentWindowHandle == 0:
         windowInfo.windowName = window_title
@@ -903,8 +912,12 @@ def CreateBrowserSync(windowInfo=None,
             and windowInfo.windowName:
         # Set window title in hello_world.py example
         IF UNAME_SYSNAME == "Linux":
-            x11.SetX11WindowTitle(cefBrowser,
-                                  PyStringToChar(windowInfo.windowName))
+            # X11 title setting uses XStoreName which requires an X11 display.
+            # Skip on native Wayland; CEF's Ozone backend propagates the page
+            # title to the compositor via xdg_toplevel_set_title automatically.
+            if not _g_linux_wayland_mode:
+                x11.SetX11WindowTitle(cefBrowser,
+                                      PyStringToChar(windowInfo.windowName))
         ELIF UNAME_SYSNAME == "Darwin":
             MacSetWindowTitle(cefBrowser,
                               PyStringToChar(windowInfo.windowName))
@@ -913,7 +926,20 @@ def CreateBrowserSync(windowInfo=None,
         if windowInfo._linux_embed_info:
             _linux_schedule_xembed(pyBrowser, windowInfo._linux_embed_info)
         if _linux_toplevel_state is not None:
-            _linux_register_window_callbacks(pyBrowser, _linux_toplevel_state)
+            if _linux_toplevel_state.get('wayland'):
+                # Native Wayland top-level: register a DoClose callback that
+                # quits the GLib loop.  On Wayland, CloseHostWindow() is a
+                # compile-time no-op, so we must exit the loop ourselves when
+                # DoClose fires (either from CloseBrowser() or xdg_toplevel.close).
+                _linux_register_wayland_close_handler(pyBrowser)
+                # When SUPPORTS_OZONE_X11 is compiled, CreateHostWindow() creates
+                # both an X11/XWayland shell window (empty) and a Wayland
+                # xdg_toplevel with the actual browser content.  Hide the empty
+                # X11 shell so only the content-bearing Wayland window is visible.
+                x11.HideX11ShellWindow(cefBrowser)
+            else:
+                # X11/XWayland top-level: attach GTK resize and close callbacks.
+                _linux_register_window_callbacks(pyBrowser, _linux_toplevel_state)
 
     return pyBrowser
 
@@ -956,13 +982,21 @@ def QuitMessageLoop():
     Debug("QuitMessageLoop()")
     IF UNAME_SYSNAME == "Linux":
         import ctypes as _ct
-        _gtk = _ct.CDLL("libgtk-3.so.0")
-        # Only call gtk_main_quit() when a GTK main loop is actually running.
-        # _on_delete() may have already called it (via gtk_main_quit directly),
-        # and calling it a second time during the drain would generate a
-        # spurious "assertion 'main_loops != NULL' failed" warning.
-        if _gtk.gtk_main_level() > 0:
-            _gtk.gtk_main_quit()
+        if _g_linux_wayland_mode:
+            # Native Wayland: quit the GLib main loop stored by
+            # _linux_wayland_message_loop().  g_main_loop_quit() is
+            # thread-safe and safe to call even from a CEF UI-thread task.
+            if _g_wayland_main_loop is not None:
+                _glib = _ct.CDLL("libglib-2.0.so.0")
+                _glib.g_main_loop_quit(_ct.c_void_p(_g_wayland_main_loop))
+        else:
+            _gtk = _ct.CDLL("libgtk-3.so.0")
+            # Only call gtk_main_quit() when a GTK main loop is actually running.
+            # _on_delete() may have already called it (via gtk_main_quit directly),
+            # and calling it a second time during the drain would generate a
+            # spurious "assertion 'main_loops != NULL' failed" warning.
+            if _gtk.gtk_main_level() > 0:
+                _gtk.gtk_main_quit()
     with nogil:
         CefQuitMessageLoop()
 

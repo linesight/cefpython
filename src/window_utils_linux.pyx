@@ -4,6 +4,19 @@
 
 include "cefpython.pyx"
 
+# Set to True when native Wayland mode is active (ozone-platform=wayland).
+# Initialised by _linux_apply_initialize_defaults() inside Initialize().
+_g_linux_wayland_mode = False
+
+# GMainLoop* pointer (raw integer) used by _linux_wayland_message_loop().
+# Stored here so QuitMessageLoop() can call g_main_loop_quit() on it.
+_g_wayland_main_loop = None
+
+# Default size for auto-created top-level windows (X11 and Wayland paths).
+_LINUX_DEFAULT_WIDTH = 800
+_LINUX_DEFAULT_HEIGHT = 600
+
+
 class WindowUtils:
     # You have to overwrite this class and provide implementations
     # for these methods.
@@ -86,20 +99,40 @@ def _linux_get_root_xid():
 
 
 def _linux_apply_initialize_defaults(app_settings, cmd_switches):
-    """Auto-apply Linux/Xwayland CEF 146 defaults that every embedding app needs.
+    """Auto-apply Linux CEF 146 defaults that every app needs.
+
+    X11/XWayland is the default on all Linux systems (even Wayland sessions).
+    Native Wayland mode must be requested explicitly by passing
+    switches={"ozone-platform": "wayland"} to cef.Initialize().
+
+    Reason: CEF's NativeWidgetDelegate hardcodes params.remove_standard_frame=true
+    and params.type=TYPE_CONTROL for the standalone Wayland path, so the
+    compositor never adds Server Side Decorations.  In X11/XWayland mode CEF
+    parents the browser widget inside the GTK window we create, and the window
+    manager decorates the GTK frame window normally.
 
     Uses setdefault so users can still override any individual entry by passing
     it explicitly to cef.Initialize(switches={...}).
     """
+    global _g_linux_wayland_mode
     import os as _os
 
-    # Must be set before GTK is first initialized (gtk_init).  Belt-and-
-    # suspenders: also set it here in case the user forgot to set it before
-    # the cefpython3 import.
-    _os.environ.setdefault("GDK_BACKEND", "x11")
+    # Native Wayland mode only when the caller explicitly opts in.
+    _ozone_explicit = cmd_switches.get("ozone-platform", "")
+    _wayland_mode = (_ozone_explicit == "wayland")
+    _g_linux_wayland_mode = _wayland_mode
 
-    # Force X11 mode in Chrome's Ozone platform selection.
-    _os.environ.pop("WAYLAND_DISPLAY", None)
+    if not _wayland_mode:
+        # X11/Xwayland mode: force GDK and Chrome onto X11.
+        # Must be set before gtk_init() so GDK opens an X11/Xwayland display.
+        _os.environ.setdefault("GDK_BACKEND", "x11")
+        # Remove WAYLAND_DISPLAY so Chrome's Ozone platform selection picks X11.
+        _os.environ.pop("WAYLAND_DISPLAY", None)
+        cmd_switches.setdefault("ozone-platform", "x11")
+    else:
+        # Native Wayland mode: use the Ozone Wayland backend.
+        # Keep WAYLAND_DISPLAY so Chrome connects to the Wayland compositor.
+        cmd_switches.setdefault("ozone-platform", "wayland")
 
     # Point the Vulkan loader at the SwiftShader ICD shipped with CEF.
     import cefpython3 as _cef3_pkg
@@ -121,7 +154,8 @@ def _linux_apply_initialize_defaults(app_settings, cmd_switches):
 
     # Chromium switches required for stable embedded operation on CEF 146.
     sw = cmd_switches
-    # Force X11 backend (not Wayland) — cefpython uses raw X11 window handles.
+    # Ozone platform: already set above (wayland or x11); setdefault is a no-op
+    # if the user already passed ozone-platform explicitly.
     sw.setdefault("ozone-platform", "x11")
     # Bypass Zygote to avoid stack-smash crash from --change-stack-guard-on-fork.
     sw.setdefault("disable-zygote", "")
@@ -221,7 +255,7 @@ def _linux_setup_profile(cache_path):
             }, _f)
 
 
-def _linux_create_toplevel(title, width=800, height=600):
+def _linux_create_toplevel(title, width=_LINUX_DEFAULT_WIDTH, height=_LINUX_DEFAULT_HEIGHT):
     """Create a standalone GTK toplevel window for embedded browser use.
 
     Called from CreateBrowserSync when no parent window handle is given on
@@ -345,14 +379,81 @@ def _linux_register_window_callbacks(browser, ws):
                                    _del_cb, None, None, 0)
 
 
-def _linux_message_loop():
-    """Run gtk_main() with a GLib timer driving CefDoMessageLoopWork().
+def _linux_register_wayland_close_handler(browser):
+    """Register a DoClose callback for a native Wayland auto-created top-level window.
 
-    Used by cef.MessageLoop() on Linux.  CEF's Ozone X11 backend requires a
-    running GLib main loop; gtk_main() provides that while the timer pumps
-    CEF's internal work queue every 10 ms.  After gtk_main() returns, pump
-    CEF briefly so browsers can close cleanly before cef.Shutdown().
+    On Wayland with the Alloy runtime, CloseHostWindow() is a compile-time no-op
+    (guarded by #if BUILDFLAG(SUPPORTS_OZONE_X11)), so WindowDestroyed() is never
+    called and OnBeforeClose never fires through the normal CEF destroy chain.
+
+    This callback bridges the gap: when the user closes the native Wayland window
+    (xdg_toplevel.close) or when CloseBrowser(True) is called, DoClose fires.
+    We quit the GLib main loop so MessageLoop() returns and the caller can proceed
+    to cef.Shutdown().  Returning False tells CEF to proceed with the close;
+    CloseHostWindow() then no-ops, but the drain loop in
+    _linux_wayland_message_loop() handles final CEF cleanup.
     """
+    _existing = browser.GetClientCallback("DoClose")
+
+    def _wayland_do_close(browser, **_kw):
+        suppress = False
+        if _existing:
+            try:
+                suppress = bool(_existing(browser=browser))
+            except Exception:
+                pass
+        if not suppress:
+            QuitMessageLoop()
+        return suppress
+
+    browser.SetClientCallback("DoClose", _wayland_do_close)
+
+
+def _linux_wayland_message_loop():
+    """Run a GLib main loop driving CefDoMessageLoopWork() for native Wayland.
+
+    No GTK window is involved; CEF's Ozone Wayland backend creates and owns its
+    own wl_surface.  The GLib main loop is used only as a portable timer source
+    to pump the CEF message queue every 10 ms.  QuitMessageLoop() calls
+    g_main_loop_quit() on the stored loop pointer to stop it.
+    """
+    global _g_wayland_main_loop
+    import ctypes as _ct, time as _t
+
+    _glib = _ct.CDLL("libglib-2.0.so.0")
+    _glib.g_main_loop_new.restype = _ct.c_void_p
+
+    _loop = _glib.g_main_loop_new(None, False)
+    _g_wayland_main_loop = _loop
+
+    _WorkCb = _ct.CFUNCTYPE(_ct.c_bool, _ct.c_void_p)
+    def _cef_work(_ud):
+        MessageLoopWork()
+        return True
+    _cb = _WorkCb(_cef_work)
+    g_linux_reparent_callbacks.append(_cb)
+    _glib.g_timeout_add(10, _cb, None)
+
+    _glib.g_main_loop_run(_ct.c_void_p(_loop))
+
+    for _ in range(50):
+        MessageLoopWork()
+        _t.sleep(0.01)
+
+    _glib.g_main_loop_unref(_ct.c_void_p(_loop))
+    _g_wayland_main_loop = None
+
+
+def _linux_message_loop():
+    """Run the appropriate message loop for the active platform backend.
+
+    Dispatches to the Wayland GLib loop or the GTK/X11 loop depending on
+    whether native Wayland mode was detected during Initialize().
+    """
+    if _g_linux_wayland_mode:
+        _linux_wayland_message_loop()
+        return
+
     import ctypes as _ct, time as _t
 
     _gtk = _ct.CDLL("libgtk-3.so.0")
