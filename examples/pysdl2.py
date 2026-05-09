@@ -38,8 +38,6 @@ Known issues (pull requests are welcome):
 - Performance is still not perfect, see Issue #324 for further details
 - Keyboard modifiers that are not yet handled in this example:
   ctrl, marking text inputs with the shift key.
-- Dragging with mouse not implemented
-- Window size is fixed, cannot be resized
 
 GUI controls:
   Due to SDL2's lack of GUI widgets there are no GUI controls
@@ -51,7 +49,10 @@ GUI controls:
 """
 
 import argparse
+import ctypes
 import logging
+import os
+import subprocess
 import sys
 
 
@@ -159,6 +160,17 @@ def main():
     scrollEnhance = 40
     # desired frame rate
     frameRate = 100
+    # On Wayland sessions prefer the native SDL Wayland backend over XWayland.
+    # Must be done before cef.Initialize() because CEF clears WAYLAND_DISPLAY
+    # from the process environment during its own Wayland/X11 negotiation.
+    # With XWayland the compositor composites the SDL surface at 1/scale so
+    # an 800x600 SDL window appears as 400x300 logical pixels and text looks
+    # half the size of a native Wayland app.  The Wayland SDL backend exposes
+    # the true physical pixel count via SDL_GetRendererOutputSize (with
+    # SDL_WINDOW_ALLOW_HIGHDPI), so the CEF buffer maps 1:1 and matches Firefox.
+    if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("SDL_VIDEODRIVER"):
+        os.environ["SDL_VIDEODRIVER"] = "wayland"
+        logging.info("Wayland session detected: using SDL Wayland backend")
     # Initialise CEF for offscreen rendering
     sys.excepthook = cef.ExceptHook
     switches = {
@@ -198,7 +210,7 @@ def main():
         sdl2.video.SDL_WINDOWPOS_UNDEFINED,
         width,
         height,
-        0
+        sdl2.video.SDL_WINDOW_RESIZABLE | sdl2.video.SDL_WINDOW_ALLOW_HIGHDPI
     )
     # Define default background colour (black in this case)
     backgroundColour = sdl2.SDL_Color(0, 0, 0)
@@ -219,8 +231,59 @@ def main():
             -1,
             sdl2.render.SDL_RENDERER_SOFTWARE
         )
+    def _renderer_output_size(renderer):
+        """Return the SDL renderer output size in pixels."""
+        out_w, out_h = ctypes.c_int(0), ctypes.c_int(0)
+        sdl2.SDL_GetRendererOutputSize(renderer,
+                                       ctypes.byref(out_w), ctypes.byref(out_h))
+        return out_w.value, out_h.value
+
+    def _detect_device_scale_factor(window, renderer):
+        """
+        Detect the device pixel ratio using a fallback chain:
+          1. SDL renderer / window size ratio — works on Mac Retina and Wayland
+             when SDL uses the native Wayland backend with SDL_WINDOW_ALLOW_HIGHDPI.
+          2. GDK_SCALE env var — GNOME sets this for X11/XWayland sessions.
+          3. Xft.dpi from xrdb — GNOME writes 96*scale here for XWayland clients
+             even when GDK_SCALE is absent (e.g. Ubuntu with implicit scaling).
+          4. Fall back to 1.0.
+        """
+        win_w, _win_h = ctypes.c_int(0), ctypes.c_int(0)
+        sdl2.SDL_GetWindowSize(window, ctypes.byref(win_w), ctypes.byref(_win_h))
+        out_w, _out_h = ctypes.c_int(0), ctypes.c_int(0)
+        sdl2.SDL_GetRendererOutputSize(renderer,
+                                       ctypes.byref(out_w), ctypes.byref(_out_h))
+        if win_w.value > 0 and out_w.value != win_w.value:
+            return out_w.value / win_w.value
+
+        gdk = os.environ.get("GDK_SCALE", "")
+        if gdk:
+            try:
+                return float(gdk)
+            except ValueError:
+                pass
+
+        try:
+            xrdb_out = subprocess.check_output(
+                ["xrdb", "-query"], stderr=subprocess.DEVNULL, timeout=1
+            )
+            for line in xrdb_out.decode().splitlines():
+                if line.lower().startswith("xft.dpi:"):
+                    xft_dpi = float(line.split(":", 1)[1].strip())
+                    # Round to nearest 0.25 to match GNOME fractional scaling steps.
+                    return round(xft_dpi / 96.0 * 4) / 4
+        except Exception:
+            pass
+
+        return 1.0
+
+    deviceScaleFactor = _detect_device_scale_factor(window, renderer)
+    physWidth, physHeight = _renderer_output_size(renderer)
+    logging.info("Device scale factor: %.2f  physical: %dx%d",
+                 deviceScaleFactor, physWidth, physHeight)
     # Set-up the RenderHandler, passing in the SDL2 renderer
-    renderHandler = RenderHandler(renderer, width, height - headerHeight)
+    renderHandler = RenderHandler(renderer, width, height - headerHeight,
+                                  deviceScaleFactor)
     # Create the browser instance
     browser = cef.CreateBrowserSync(window_info,
                                     url="https://www.google.com/",
@@ -282,10 +345,29 @@ def main():
                         )
             elif event.type == sdl2.SDL_MOUSEMOTION:
                 if event.motion.y > headerHeight:
-                    # Mouse move triggered in browser region
+                    modifiers = cef.EVENTFLAG_NONE
+                    state = event.motion.state
+                    if state & sdl2.SDL_BUTTON_LMASK:
+                        modifiers |= cef.EVENTFLAG_LEFT_MOUSE_BUTTON
+                    if state & sdl2.SDL_BUTTON_MMASK:
+                        modifiers |= cef.EVENTFLAG_MIDDLE_MOUSE_BUTTON
+                    if state & sdl2.SDL_BUTTON_RMASK:
+                        modifiers |= cef.EVENTFLAG_RIGHT_MOUSE_BUTTON
                     browser.SendMouseMoveEvent(event.motion.x,
                                                event.motion.y - headerHeight,
-                                               False)
+                                               False,
+                                               modifiers)
+            elif event.type == sdl2.SDL_WINDOWEVENT:
+                if event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
+                    width = event.window.data1
+                    height = event.window.data2
+                    browserWidth = width
+                    browserHeight = height - headerHeight
+                    physWidth, physHeight = _renderer_output_size(renderer)
+                    renderHandler._set_size(browserWidth, browserHeight)
+                    browser.WasResized()
+                    logging.debug("Window resized to %dx%d (scale %.2f)",
+                                  width, height, deviceScaleFactor)
             elif event.type == sdl2.SDL_MOUSEWHEEL:
                 logging.debug("SDL2 MOUSEWHEEL event")
                 # Mouse wheel event
@@ -398,13 +480,17 @@ def main():
         # Tell CEF to update which will trigger the OnPaint
         # method of the RenderHandler instance
         cef.MessageLoopWork()
-        # Update display
-        sdl2.SDL_RenderCopy(
-            renderer,
-            renderHandler.texture,
-            None,
-            sdl2.SDL_Rect(0, headerHeight, browserWidth, browserHeight)
-        )
+        # Update display using physical pixel dimensions for the destination rect
+        # so the texture fills the renderer output correctly on HiDPI displays.
+        if renderHandler.texture:
+            physHeaderHeight = int(headerHeight * deviceScaleFactor)
+            sdl2.SDL_RenderCopy(
+                renderer,
+                renderHandler.texture,
+                None,
+                sdl2.SDL_Rect(0, physHeaderHeight,
+                              physWidth, physHeight - physHeaderHeight)
+            )
         sdl2.SDL_RenderPresent(renderer)
         # FPS debug code
         frames += 1
@@ -497,17 +583,29 @@ class RenderHandler(object):
     the SDL2 texture.
     """
 
-    def __init__(self, renderer, width, height):
+    def __init__(self, renderer, width, height, device_scale_factor=1.0):
         self.__width = width
         self.__height = height
         self.__renderer = renderer
+        self.__device_scale_factor = device_scale_factor
         self.texture = None
+
+    def _set_size(self, width, height):
+        self.__width = width
+        self.__height = height
+
+    def _set_device_scale_factor(self, scale):
+        self.__device_scale_factor = scale
+
+    def GetScreenInfo(self, browser, screen_info_out, **_):
+        screen_info_out["device_scale_factor"] = self.__device_scale_factor
+        return True
 
     def GetViewRect(self, rect_out, **_):
         rect_out.extend([0, 0, self.__width, self.__height])
         return True
 
-    def OnPaint(self, element_type, paint_buffer, **_):
+    def OnPaint(self, element_type, paint_buffer, width, height, **_):
         """
         Using the pixel data from CEF's offscreen rendering
         the data is converted by PIL into a SDL2 surface
@@ -516,7 +614,7 @@ class RenderHandler(object):
         if element_type == cef.PET_VIEW:
             image = Image.frombuffer(
                 'RGBA',
-                (self.__width, self.__height),
+                (width, height),
                 paint_buffer.GetString(mode="rgba", origin="top-left"),
                 'raw',
                 'BGRA'
@@ -537,7 +635,7 @@ class RenderHandler(object):
                     gmask = 0x00FF00
                     bmask = 0x0000FF
                 depth = 24
-                pitch = self.__width * 3
+                pitch = width * 3
             elif mode in ("RGBA", "RGBX"):
                 # RGBX: 4x8-bit, no alpha
                 # RGBA: 4x8-bit, alpha
@@ -554,7 +652,7 @@ class RenderHandler(object):
                     if mode == "RGBA":
                         amask = 0x000000FF
                 depth = 32
-                pitch = self.__width * 4
+                pitch = width * 4
             else:
                 logging.error("ERROR: Unsupported mode: %s" % mode)
                 exit_app()
@@ -563,8 +661,8 @@ class RenderHandler(object):
             # Create surface
             surface = sdl2.SDL_CreateRGBSurfaceFrom(
                 pxbuf,
-                self.__width,
-                self.__height,
+                width,
+                height,
                 depth,
                 pitch,
                 rmask,
