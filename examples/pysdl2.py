@@ -156,7 +156,10 @@ def main():
     headerHeight = 0
     browserHeight = height - headerHeight
     browserWidth = width
-    # Mouse wheel fudge to enhance scrolling
+    # CSS pixels per wheel unit. Used as a multiplier (not an adder) so that
+    # smooth-scroll sub-pixel events scale proportionally and y=0 events send
+    # nothing. Multiplied by deviceScaleFactor at event time so the perceived
+    # scroll distance matches a native browser at any DPI.
     scrollEnhance = 40
     # desired frame rate
     frameRate = 100
@@ -370,18 +373,20 @@ def main():
                                   width, height, deviceScaleFactor)
             elif event.type == sdl2.SDL_MOUSEWHEEL:
                 logging.debug("SDL2 MOUSEWHEEL event")
-                # Mouse wheel event
-                x = event.wheel.x
-                if x < 0:
-                    x -= scrollEnhance
-                else:
-                    x += scrollEnhance
-                y = event.wheel.y
-                if y < 0:
-                    y -= scrollEnhance
-                else:
-                    y += scrollEnhance
-                browser.SendMouseWheelEvent(0, 0, x, y)
+                # Use sub-pixel precision when available (SDL >= 2.0.18).
+                # Multiply by deviceScaleFactor: SendMouseWheelEvent takes
+                # physical pixels, so at 2x a logical-unit delta must be
+                # doubled to move the same apparent distance as in a native
+                # browser.
+                try:
+                    dx = event.wheel.preciseX
+                    dy = event.wheel.preciseY
+                except AttributeError:
+                    dx = float(event.wheel.x)
+                    dy = float(event.wheel.y)
+                scale = scrollEnhance * deviceScaleFactor
+                browser.SendMouseWheelEvent(
+                    0, 0, int(dx * scale), int(dy * scale))
             elif event.type == sdl2.SDL_TEXTINPUT:
                 # Handle text events to get actual characters typed rather
                 # than the key pressed.
