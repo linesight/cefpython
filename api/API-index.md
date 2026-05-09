@@ -347,7 +347,6 @@
 * [RenderHandler (interface)](RenderHandler.md#renderhandler-interface)
   * [GetRootScreenRect](RenderHandler.md#getrootscreenrect)
   * [GetViewRect](RenderHandler.md#getviewrect)
-  * [GetScreenRect](RenderHandler.md#getscreenrect)
   * [GetScreenPoint](RenderHandler.md#getscreenpoint)
   * [GetScreenInfo](RenderHandler.md#getscreeninfo)
   * [OnPopupShow](RenderHandler.md#onpopupshow)

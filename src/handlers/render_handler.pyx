@@ -85,34 +85,6 @@ cdef public cpp_bool RenderHandler_GetViewRect(
         (exc_type, exc_value, exc_trace) = sys.exc_info()
         sys.excepthook(exc_type, exc_value, exc_trace)
 
-cdef public cpp_bool RenderHandler_GetScreenRect(
-        CefRefPtr[CefBrowser] cefBrowser,
-        CefRect& cefRect
-        ) except * with gil:
-    cdef PyBrowser pyBrowser
-    cdef list pyRect = []
-    cdef py_bool ret
-    try:
-        pyBrowser = GetPyBrowser(cefBrowser, "GetScreenRect")
-        callback = pyBrowser.GetClientCallback("GetScreenRect")
-        if callback:
-            ret = callback(browser=pyBrowser, rect_out=pyRect)
-            if ret:
-                assert (pyRect and len(pyRect) == 4), (
-                        "rectangle not provided or invalid")
-                cefRect.x = pyRect[0]
-                cefRect.y = pyRect[1]
-                cefRect.width = pyRect[2]
-                cefRect.height = pyRect[3]
-                return True
-            else:
-                return False
-        else:
-            return False
-    except:
-        (exc_type, exc_value, exc_trace) = sys.exc_info()
-        sys.excepthook(exc_type, exc_value, exc_trace)
-
 cdef public cpp_bool RenderHandler_GetScreenPoint(
         CefRefPtr[CefBrowser] cefBrowser,
         int viewX, int viewY,
@@ -285,14 +257,16 @@ cdef public void RenderHandler_OnPaint(
         sys.excepthook(exc_type, exc_value, exc_trace)
 
 cdef public void RenderHandler_OnScrollOffsetChanged(
-        CefRefPtr[CefBrowser] cefBrowser
+        CefRefPtr[CefBrowser] cefBrowser,
+        double x,
+        double y
         ) noexcept with gil:
     cdef PyBrowser pyBrowser
     try:
         pyBrowser = GetPyBrowser(cefBrowser, "OnScrollOffsetChanged")
         callback = pyBrowser.GetClientCallback("OnScrollOffsetChanged")
         if callback:
-            callback(browser=pyBrowser)
+            callback(browser=pyBrowser, x=x, y=y)
     except:
         (exc_type, exc_value, exc_trace) = sys.exc_info()
         sys.excepthook(exc_type, exc_value, exc_trace)

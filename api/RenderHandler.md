@@ -15,7 +15,6 @@ Table of contents:
 * [Callbacks](#callbacks)
   * [GetRootScreenRect](#getrootscreenrect)
   * [GetViewRect](#getviewrect)
-  * [GetScreenRect](#getscreenrect)
   * [GetScreenPoint](#getscreenpoint)
   * [GetScreenInfo](#getscreeninfo)
   * [OnPopupShow](#onpopupshow)
@@ -72,18 +71,6 @@ Return true if the rectangle was provided.
 
 Called to retrieve the view rectangle which is relative to screen
 coordinates. Return true if the rectangle was provided.
-
-
-### GetScreenRect
-
-| Parameter | Type |
-| --- | --- |
-| browser | [Browser](Browser.md) |
-| rect_out | list[x,y,width,height] |
-| __Return__ | bool |
-
-Called to retrieve the simulated screen rectangle. Return true
-if the rectangle was provided.
 
 
 ### GetScreenPoint
@@ -213,6 +200,8 @@ Called when the browser's cursor has changed. If |type| is CT_CUSTOM then
 | Parameter | Type |
 | --- | --- |
 | browser | [Browser](Browser.md) |
+| x | float |
+| y | float |
 | __Return__ | void |
 
 Called when the scroll offset has changed.
