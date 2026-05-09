@@ -349,6 +349,7 @@
   * [GetViewRect](RenderHandler.md#getviewrect)
   * [GetScreenRect](RenderHandler.md#getscreenrect)
   * [GetScreenPoint](RenderHandler.md#getscreenpoint)
+  * [GetScreenInfo](RenderHandler.md#getscreeninfo)
   * [OnPopupShow](RenderHandler.md#onpopupshow)
   * [OnPopupSize](RenderHandler.md#onpopupsize)
   * [OnPaint](RenderHandler.md#onpaint)
