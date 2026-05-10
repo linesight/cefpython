@@ -699,8 +699,13 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
             Debug("CefInitialize() WARNING: OnContextInitialized not received"
                   " within 30 seconds")
 
-    if sys.platform.startswith("linux") and not _g_linux_wayland_mode:
-        WindowUtils.InstallX11ErrorHandlers()
+    # Compile-time Linux guard: _g_linux_wayland_mode is defined in
+    # window_utils_linux.pyx, which is only included in the Linux build,
+    # so this whole block must be excluded on Windows/macOS or Cython
+    # fails with "undeclared name not builtin: _g_linux_wayland_mode".
+    IF UNAME_SYSNAME == "Linux":
+        if not _g_linux_wayland_mode:
+            WindowUtils.InstallX11ErrorHandlers()
 
 
     return ret
