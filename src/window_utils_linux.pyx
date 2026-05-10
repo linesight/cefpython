@@ -173,7 +173,7 @@ def _linux_apply_initialize_defaults(app_settings, cmd_switches):
 
     # Disable Chromium's Linux sandbox.
     #
-    # History (so readers don't think this is CEF-146-specific):
+    # History:
     #   * CEF defaulted sandbox-OFF until 2013-11-15 (commit f5bc72b23,
     #     SVN trunk@1518, "Add sandbox support, issue #524").  The
     #     commit message stated explicitly: "Linux: For binary
