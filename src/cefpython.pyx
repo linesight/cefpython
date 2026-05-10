@@ -676,12 +676,18 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
     # Use a generous ceiling (30s) for CI environments where utility
     # subprocesses (storage service) crash and delay context initialization.
     if ret:
-        # On Linux, skip this pump entirely: the Ozone X11 backend needs
-        # gtk_main() (a blocking GLib main loop) running before
-        # OnContextInitialized can fire.  The external caller (hello_world.py,
-        # test harnesses) must enter gtk_main() immediately after Initialize()
-        # and drive the loop via the GLib timer callback.
-        # On Windows/macOS, pump up to 30 s as before.
+        # On Linux, skip this pump entirely.  Empirical testing shows manual
+        # CefDoMessageLoopWork() *does* fire OnContextInitialized within 2-3s
+        # on both Ozone X11 and Ozone Wayland in the current cefpython
+        # configuration, so the historical "needs gtk_main()" claim is no
+        # longer accurate — but we still skip it deliberately to keep
+        # Initialize() non-blocking on Linux.  The user enters
+        # cef.MessageLoop() (gtk_main on X11, GLib loop on Wayland) right
+        # after Initialize() returns; OnContextInitialized fires there and
+        # BrowserProcessHandler_OnContextInitialized drains
+        # g_pending_browsers.  This avoids a 2-3s startup latency hit on
+        # the common case and a 30s block in edge cases.
+        # On Windows/macOS, pump up to 30s as before.
         IF UNAME_SYSNAME != "Linux":
             for _ in range(3000):
                 with nogil:
@@ -731,11 +737,34 @@ def CreateBrowserSync(windowInfo=None,
     # plus its own thread checks internally, so a Python-side assert
     # would only catch the same condition with a worse error message.
 
-    # Defer browser creation until OnContextInitialized fires inside MessageLoop.
-    # In CEF 123+, browser creation before OnContextInitialized causes
-    # blink.mojom.WidgetHost rejection and renderer shows no content.
-    # Initialize() pumps the loop for up to 30s; if still not initialized
-    # (e.g. slow CI), pump an additional 30s before giving up.
+    # Defer browser creation until OnContextInitialized fires.
+    #
+    # CefBrowserContext initialization is asynchronous: it is not finished
+    # when CefInitialize() returns, especially when external_message_pump
+    # is in use (our default — see _linux_apply_initialize_defaults).  The
+    # OnContextInitialized callback is the documented signal that the
+    # browser context is ready (see upstream CEF commit 691c9c2 "Wait for
+    # CefBrowserContext initialization", 2021-04-14, issue #2969 — added
+    # the explicit wait when Chrome runtime introduced async Profile init).
+    #
+    # Calling CefBrowserHost::CreateBrowserSync before that point lets the
+    # renderer come up before its host bindings are wired, and the
+    # browser-process side then rejects the renderer's first IPC message
+    # with a "blink.mojom.WidgetHost" / "Message N rejected by interface"
+    # mojo error.  The visible symptom is a blank page.
+    #
+    # Strategy:
+    #   * Windows / macOS: cefpython.Initialize() already pumps up to 30s
+    #     waiting for OnContextInitialized.  If a caller reaches
+    #     CreateBrowserSync earlier anyway (slow CI, custom Initialize
+    #     override), pump another 30s here before giving up.
+    #   * Linux (X11 and Wayland Ozone backends): skip the local pump,
+    #     mirroring Initialize().  The deferred path always works: queue
+    #     the request and let BrowserProcessHandler_OnContextInitialized
+    #     drain it once cef.MessageLoop() starts the GLib loop.
+    # When this falls through still uninitialised, queue the request in
+    # g_pending_browsers for the OnContextInitialized handler to drain
+    # once the loop is actually running.
     if not g_context_initialized:
         Debug("CreateBrowserSync(): OnContextInitialized not yet received,"
               " pumping message loop")
