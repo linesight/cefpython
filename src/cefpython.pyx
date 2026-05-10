@@ -587,10 +587,6 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         # In native Wayland mode, no GTK/X11 connection is needed or wanted.
         if not _g_linux_wayland_mode:
             _linux_gtk_init()
-        # Pre-seed Chrome profile files to prevent the profile-picker keepalive
-        # from blocking OnContextInitialized (Chrome 146).
-        if application_settings.get("cache_path"):
-            _linux_setup_profile(application_settings["cache_path"])
 
     cdef CefRefPtr[CefApp] cefApp = <CefRefPtr[CefApp]?>new CefPythonApp()
 
@@ -726,8 +722,14 @@ def CreateBrowserSync(windowInfo=None,
         raise Exception("Invalid argument: "+kwarg)
 
     Debug("CreateBrowserSync() called")
-    # CEF 146+: CefCurrentlyOn(TID_UI) returns false before MessageLoop starts,
-    # so skip the assert here and let CEF's own internal checks handle it.
+    # No CefCurrentlyOn(TID_UI) assert here.  cefpython defers the real
+    # browser creation until OnContextInitialized fires (see below), so
+    # this function is reached before BrowserThread::UI is fully
+    # established — at which point CefCurrentlyOn() returns false and
+    # logs a WARNING (libcef/common/task_impl.cc).  CEF's own
+    # CefBrowserHost::CreateBrowserSync() runs CONTEXT_STATE_VALID()
+    # plus its own thread checks internally, so a Python-side assert
+    # would only catch the same condition with a worse error message.
 
     # Defer browser creation until OnContextInitialized fires inside MessageLoop.
     # In CEF 123+, browser creation before OnContextInitialized causes

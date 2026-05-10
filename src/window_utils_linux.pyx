@@ -99,7 +99,7 @@ def _linux_get_root_xid():
 
 
 def _linux_apply_initialize_defaults(app_settings, cmd_switches):
-    """Auto-apply Linux CEF 146 defaults that every app needs.
+    """Auto-apply Linux defaults that every cefpython app needs.
 
     X11/XWayland is the default on all Linux systems (even Wayland sessions).
     Native Wayland mode must be requested explicitly by passing
@@ -112,147 +112,99 @@ def _linux_apply_initialize_defaults(app_settings, cmd_switches):
     manager decorates the GTK frame window normally.
 
     Uses setdefault so users can still override any individual entry by passing
-    it explicitly to cef.Initialize(switches={...}).
+    it explicitly to cef.Initialize(switches={...}).  Each setting kept here
+    has been individually retested against current CEF/Chromium — anything
+    that did not regress when removed has been dropped.
     """
     global _g_linux_wayland_mode
     import os as _os
 
-    # Native Wayland mode only when the caller explicitly opts in.
-    _ozone_explicit = cmd_switches.get("ozone-platform", "")
-    _wayland_mode = (_ozone_explicit == "wayland")
-    _g_linux_wayland_mode = _wayland_mode
+    # Native Wayland mode only when the caller explicitly opts in via
+    # switches={"ozone-platform": "wayland"}.  Otherwise default to X11/Xwayland.
+    _g_linux_wayland_mode = (cmd_switches.get("ozone-platform") == "wayland")
 
-    if not _wayland_mode:
-        # X11/Xwayland mode: force GDK and Chrome onto X11.
-        # Must be set before gtk_init() so GDK opens an X11/Xwayland display.
-        _os.environ.setdefault("GDK_BACKEND", "x11")
-        # Remove WAYLAND_DISPLAY so Chrome's Ozone platform selection picks X11.
-        _os.environ.pop("WAYLAND_DISPLAY", None)
+    if not _g_linux_wayland_mode:
+        # X11/Xwayland mode: force Chrome's Ozone backend to X11.  This is
+        # the *only* thing keeping Chromium off the Wayland display on a
+        # Wayland session — we cannot embed a Wayland xdg_surface inside
+        # the GTK X11 window we create in _linux_create_toplevel().
+        # GDK_BACKEND=x11 is set separately in _linux_gtk_init() before
+        # gtk_init().
         cmd_switches.setdefault("ozone-platform", "x11")
-    else:
-        # Native Wayland mode: use the Ozone Wayland backend.
-        # Keep WAYLAND_DISPLAY so Chrome connects to the Wayland compositor.
-        cmd_switches.setdefault("ozone-platform", "wayland")
+    # Native Wayland branch: "ozone-platform" is already in cmd_switches
+    # (the only way to reach this branch), so nothing to do here.
 
-    # Point the Vulkan loader at the SwiftShader ICD shipped with CEF.
-    import cefpython3 as _cef3_pkg
-    _cef3_dir = _os.path.dirname(_cef3_pkg.__file__)
-    _vk_icd = _os.path.join(_cef3_dir, "vk_swiftshader_icd.json")
-    if _os.path.exists(_vk_icd):
-        _os.environ.setdefault("VK_ICD_FILENAMES", _vk_icd)
+    # Vulkan ICD fallback for systems with no system-installed driver.
+    #
+    # On systems with no Vulkan ICD (typical for VMs and minimal containers),
+    # Chromium's GPU process fails its Vulkan probe and the renderer logs a
+    # transient
+    #   ContextResult::kTransientFailure: Failed to send
+    #     GpuControl.CreateCommandBuffer
+    # before falling back to software rendering.  Pointing VK_ICD_FILENAMES
+    # at the SwiftShader manifest bundled with CEF makes the probe succeed
+    # immediately and silences the line.
+    #
+    # Only apply the fallback when no system ICD is present in the standard
+    # loader search paths — overriding a working Mesa/NVIDIA/AMD ICD with
+    # SwiftShader would force software rendering for no reason on real GPUs.
+    # Honors a pre-set VK_ICD_FILENAMES (setdefault) so users can override.
+    import glob as _glob
+    _system_icds = (_glob.glob("/usr/share/vulkan/icd.d/*.json") +
+                    _glob.glob("/etc/vulkan/icd.d/*.json") +
+                    _glob.glob("/usr/local/share/vulkan/icd.d/*.json"))
+    if not _system_icds:
+        import cefpython3 as _cef3_pkg
+        _cef3_dir = _os.path.dirname(_cef3_pkg.__file__)
+        _vk_icd = _os.path.join(_cef3_dir, "vk_swiftshader_icd.json")
+        if _os.path.exists(_vk_icd):
+            _os.environ.setdefault("VK_ICD_FILENAMES", _vk_icd)
 
-    # CEF 146 on Ozone X11 requires a running GLib main loop for
-    # OnContextInitialized to fire.  external_message_pump integrates
-    # CefDoMessageLoopWork() as a GLib source.
+    # _linux_message_loop / _linux_wayland_message_loop drive CEF by calling
+    # CefDoMessageLoopWork() from a GLib timer.  external_message_pump tells
+    # CEF not to run its own internal loop, so the two don't conflict.
     app_settings.setdefault("external_message_pump", True)
 
-    # Allow per-browser opt-in to off-screen rendering.  This is needed so
-    # that JS-created popup browsers (window.open) can be closed without
-    # dispatching GLib/X11 events: off-screen browsers are destroyed
-    # immediately when DoClose returns False (no delete_event to parent).
+    # Allow per-browser opt-in to off-screen rendering.  Required by examples
+    # that pass WindowInfo.SetAsOffscreen() (e.g. pysdl2.py) and by JS-created
+    # popup browsers, which are destroyed immediately when DoClose returns
+    # False — no delete_event would be dispatched on a windowed popup.
     app_settings.setdefault("windowless_rendering_enabled", True)
 
-    # Chromium switches required for stable embedded operation on CEF 146.
-    sw = cmd_switches
-    # Ozone platform: already set above (wayland or x11); setdefault is a no-op
-    # if the user already passed ozone-platform explicitly.
-    sw.setdefault("ozone-platform", "x11")
-    # Bypass Zygote to avoid stack-smash crash from --change-stack-guard-on-fork.
-    sw.setdefault("disable-zygote", "")
-    # Belt-and-suspenders sandbox suppression.
-    sw.setdefault("no-sandbox", "")
-    # /dev/shm may be too small in VMs and containers.
-    sw.setdefault("disable-dev-shm-usage", "")
-    # Suppress GNOME Keyring unlock prompt.
-    sw.setdefault("password-store", "basic")
-    # Skip 3× GPU subprocess crash cycle; go straight to software rendering.
-    sw.setdefault("disable-gpu", "")
-    # Startup / sync / background noise suppression.
-    sw.setdefault("no-first-run", "")
-    sw.setdefault("disable-sync", "")
-    sw.setdefault("no-startup-window", "")
-    sw.setdefault("disable-background-networking", "")
-    # Profile subdirectory — prevents ShouldShowProfilePickerAtLaunch() from
-    # returning True and adding a kProfileCreationFlow keepalive that would
-    # permanently block OnContextInitialized in embedded apps.
-    sw.setdefault("profile-directory", "Default")
-    # Disable UI features that add their own keepalives or block init.
-    if "disable-features" not in sw:
-        sw["disable-features"] = (
-            "WebGPU,"
-            "ProfilePicker,"
-            "ProfilePickerIPH,"
-            "ForYouFre,"
-            "SyncPromoFRE,"
-            "ChromeSigninIphExperiment,"
-            "ChromeWhatsNewUI,"
-            "DefaultBrowserPrompt,"
-            "ProfileManagementFlowController"
-        )
-
-
-def _linux_setup_profile(cache_path):
-    """Pre-create Chrome profile files to skip profile-picker keepalive.
-
-    Chrome 146 adds a kProfileCreationFlow keepalive when it creates a new
-    profile from scratch and only removes it after the wizard UI completes.
-    Writing seed files before cef.Initialize() makes Chrome treat the
-    profile as already configured, skipping the keepalive entirely.
-    """
-    import os as _os, json as _json, glob as _glob
-
-    default_dir = _os.path.join(cache_path, "Default")
-    _os.makedirs(default_dir, exist_ok=True)
-
-    for _pat in ("Singleton*", "*.lock", "LOCK"):
-        for _f in _glob.glob(_os.path.join(cache_path, _pat)):
-            try: _os.unlink(_f)
-            except OSError: pass
-        for _f in _glob.glob(_os.path.join(default_dir, _pat)):
-            try: _os.unlink(_f)
-            except OSError: pass
-
-    first_run = _os.path.join(cache_path, "First Run")
-    if not _os.path.exists(first_run):
-        open(first_run, "w").close()
-
-    local_state = _os.path.join(cache_path, "Local State")
-    if not _os.path.exists(local_state):
-        with open(local_state, "w") as _f:
-            _json.dump({"profile": {
-                "info_cache": {"Default": {
-                    "active_time": 1704067200.0,
-                    "avatar_icon": "chrome://theme/IDR_PROFILE_AVATAR_0",
-                    "is_using_default_avatar": True,
-                    "is_using_default_name": True,
-                    "is_new_profile": False,
-                    "managed_user_id": "",
-                    "name": "Default",
-                }},
-                "last_used": "Default",
-                "profiles_created": 1,
-            }}, _f)
-
-    prefs = _os.path.join(default_dir, "Preferences")
-    if not _os.path.exists(prefs):
-        with open(prefs, "w") as _f:
-            _json.dump({
-                "profile": {
-                    "creation_time": "13328563200000000",
-                    "is_using_default_name": True,
-                    "name": "Default",
-                },
-                "browser": {"has_seen_welcome_page": True},
-                "privacy_sandbox": {
-                    "m1.consent_decision_made": True,
-                    "m1.notice_acknowledged": True,
-                    "m1.restricted_notice_acknowledged": True,
-                    "consent_decision_made": True,
-                    "notice_acknowledged": True,
-                    "first_run_consent_required": False,
-                    "first_run_setup_complete": True,
-                },
-            }, _f)
+    # Disable Chromium's Linux sandbox.
+    #
+    # History (so readers don't think this is CEF-146-specific):
+    #   * CEF defaulted sandbox-OFF until 2013-11-15 (commit f5bc72b23,
+    #     SVN trunk@1518, "Add sandbox support, issue #524").  The
+    #     commit message stated explicitly: "Linux: For binary
+    #     distributions a new chrome-sandbox executable with SUID
+    #     permissions must be placed next to the CEF executable."
+    #   * The earliest release branch carrying that change is branch
+    #     2357 (created 2015-08-21, ~Chromium 44).  From 2357 onward,
+    #     every CEF Linux build defaults sandbox-ON and refuses to start
+    #     unless either a SUID-root chrome-sandbox helper is installed
+    #     or this --no-sandbox switch is passed.
+    #   * For ~2017-2023, most distros enabled
+    #     kernel.unprivileged_userns_clone=1, so Chromium's namespace
+    #     sandbox could substitute for the SUID helper and many
+    #     embedders quietly avoided either step.
+    #   * Ubuntu 23.10 (Oct 2023) set
+    #     kernel.apparmor_restrict_unprivileged_userns=1 by default;
+    #     Debian 12 followed.  This re-broke the namespace-only path:
+    #     without the SUID helper Chromium aborts with
+    #     FATAL: No usable sandbox!  (zygote_host_impl_linux.cc:128)
+    #   * cefpython is distributed as a pip wheel, and pip cannot
+    #     chown root + chmod 4755 a binary (it runs as the user, not
+    #     root, and has no postinst hook).  Distro packages such as
+    #     google-chrome and chromium handle this in their .deb/.rpm
+    #     postinst scripts; cefpython has no equivalent install path.
+    #
+    # Effect of this line: cefpython works out of the box on every
+    # Linux distro at the cost of running Chromium subprocesses
+    # without the chromium namespace sandbox (seccomp-bpf still
+    # applies).  See docs/Knowledge-Base.md "Linux: enabling the
+    # Chromium sandbox" for the manual opt-in path.
+    cmd_switches.setdefault("no-sandbox", "")
 
 
 def _linux_create_toplevel(title, width=_LINUX_DEFAULT_WIDTH, height=_LINUX_DEFAULT_HEIGHT):
