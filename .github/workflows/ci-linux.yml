@@ -2,7 +2,7 @@ name: CI Linux
 
 on:
   push:
-    branches: ["master", "cefpython147"]
+    branches: ["master", "cefpython147-mac"]
   pull_request:
     branches: ["master"]
   workflow_dispatch:
