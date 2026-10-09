@@ -97,6 +97,8 @@ cdef public void LifespanHandler_OnAfterCreated(
     cdef PyBrowser pyBrowser
     try:
         pyBrowser = GetPyBrowser(cefBrowser, "OnAfterCreated")
+        Debug("[#699] OnAfterCreated() browserId=%s"
+              % pyBrowser.GetIdentifier())
         callback = GetGlobalClientCallback("OnAfterCreated")
         if callback:
             callback(browser=pyBrowser)

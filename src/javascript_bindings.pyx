@@ -105,6 +105,9 @@ cdef class JavascriptBindings:
                     methods[methodName] = None
                 objects[objectName] = methods
             mainFrame = pyBrowser.GetMainFrame()
+            Debug("[#699] Rebind() browserId=%s target mainFrameId=%s"
+                  " valid=%s" % (browserId, mainFrame.GetIdentifier(),
+                                 mainFrame.IsValid()))
             if mainFrame.IsValid():
                 mainFrame.SendProcessMessage(cef_types.PID_RENDERER,
                     mainFrame.frameId, "DoJavascriptBindings", [{

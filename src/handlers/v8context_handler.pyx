@@ -36,6 +36,11 @@ cdef public void V8ContextHandler_OnContextCreated(
         pyBrowser = GetPyBrowser(cefBrowser, "OnContextCreated")
         pyBrowser.SetUserData("__v8ContextCreated", True)
         pyFrame = GetPyFrame(cefFrame)
+        Debug("[#699] OnContextCreated() browserId=%s frameId=%s isMain=%s"
+              " url=%s mainFrameId=%s"
+              % (pyBrowser.GetIdentifier(), pyFrame.GetIdentifier(),
+                 pyFrame.IsMain(), pyFrame.GetUrl(),
+                 pyBrowser.GetMainFrame().GetIdentifier()))
         # Re-send the JS bindings to the renderer. OnContextCreated fires for
         # each new V8 context (page load, navigation, cross-origin navigation
         # under site isolation); a fresh context has none of the previously
@@ -73,6 +78,8 @@ cdef public void V8ContextHandler_OnContextReleased(
         # main browser, if the browser is destroyed shortly after the frames
         # were released.
         Debug("V8ContextHandler_OnContextReleased()")
+        Debug("[#699] OnContextReleased() browserId=%s frameId=%s"
+              % (browserId, CefToPyString(frameId)))
         pyBrowser = GetPyBrowserById(browserId)
         if not pyBrowser:
             Debug("OnContextReleased: Browser doesn't exist anymore, id={id}"

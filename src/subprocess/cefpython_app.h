@@ -7,6 +7,10 @@
 #include "include/cef_print_handler.h"
 
 #include <map>
+#include <string>
+
+// [#699] diagnostic helper, defined in cefpython_app.cpp.
+std::string Issue699ViewInfo(CefRefPtr<CefBrowser> browser);
 
 // CefPythonApp class is instantiated in subprocess and in
 // cefpython.pyx for the browser process, so the code is shared.

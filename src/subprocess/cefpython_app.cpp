@@ -37,6 +37,11 @@
 #include "v8utils.h"
 #include "javascript_callback.h"
 #include "v8function_handler.h"
+#include <sstream>
+#include <cstdlib>
+#if !defined(OS_WIN)
+#include <unistd.h>
+#endif
 
 #ifdef BROWSER_PROCESS
 #include "main_message_loop/main_message_loop_external_pump.h"
@@ -44,6 +49,25 @@
 
 // GLOBALS
 bool g_debug = false;
+
+// [#699] diagnostic: identifies the render view (CefBrowserImpl instance)
+// and the renderer process, since several views may share a browser id.
+std::string Issue699ViewInfo(CefRefPtr<CefBrowser> browser) {
+    std::ostringstream ss;
+#if defined(OS_WIN)
+    ss << "pid=" << GetCurrentProcessId();
+#else
+    ss << "pid=" << getpid();
+#endif
+    // CefBrowser pointers are per-call wrappers, so identify the view by
+    // its main frame instead.
+    CefRefPtr<CefFrame> mainFrame = browser->GetMainFrame();
+    ss << " browserId=" << browser->GetIdentifier()
+       << " viewMainFrameId="
+       << (mainFrame.get() ? mainFrame->GetIdentifier().ToString()
+                           : std::string("<null>"));
+    return ss.str();
+}
 
 CefPythonApp::CefPythonApp() {
 #ifdef BROWSER_PROCESS
@@ -238,14 +262,29 @@ void CefPythonApp::OnWebKitInitialized() {
 
 void CefPythonApp::OnBrowserCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDictionaryValue> extra_info) {
     browserViewCount_[browser->GetIdentifier()]++;
+    LOG(INFO) << "[Renderer process] [#699] OnBrowserCreated() "
+              << Issue699ViewInfo(browser) << " viewCount="
+              << browserViewCount_[browser->GetIdentifier()];
 }
 
 void CefPythonApp::OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) {
     LOG(INFO) << "[Renderer process] OnBrowserDestroyed()";
     int browserId = browser->GetIdentifier();
-    if (--browserViewCount_[browserId] > 0) {
+    // [#699] diagnostic: CEFPYTHON_699_DISABLE_FIX=1 restores the old
+    // erase-always behavior for comparison runs.
+    const bool disableFix = getenv("CEFPYTHON_699_DISABLE_FIX") != nullptr;
+    if (--browserViewCount_[browserId] > 0 && !disableFix) {
+        LOG(INFO) << "[Renderer process] [#699] OnBrowserDestroyed() "
+                  << Issue699ViewInfo(browser) << " viewCount="
+                  << browserViewCount_[browserId] << " -> bindings KEPT";
         return;
     }
+    LOG(INFO) << "[Renderer process] [#699] OnBrowserDestroyed() "
+              << Issue699ViewInfo(browser) << " viewCount="
+              << browserViewCount_[browserId] << " -> bindings ERASED"
+              << (disableFix ? " (fix DISABLED)" : "")
+              << " (hadBindings="
+              << (GetJavascriptBindings(browser).get() ? 1 : 0) << ")";
     browserViewCount_.erase(browserId);
     RemoveJavascriptBindings(browser);
 }
@@ -260,6 +299,12 @@ void CefPythonApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
     arguments->SetString(0, frame->GetIdentifier());
     frame->SendProcessMessage(PID_BROWSER, message);
     CefRefPtr<CefDictionaryValue> jsBindings = GetJavascriptBindings(browser);
+    LOG(INFO) << "[Renderer process] [#699] OnContextCreated() "
+              << Issue699ViewInfo(browser)
+              << " frameId=" << frame->GetIdentifier().ToString()
+              << " isMain=" << frame->IsMain()
+              << " url=" << frame->GetURL().ToString()
+              << " storedBindings=" << (jsBindings.get() ? 1 : 0);
 
     if (jsBindings.get()) {
         // Javascript bindings are most probably not yet set for
@@ -282,6 +327,10 @@ void CefPythonApp::OnContextReleased(CefRefPtr<CefBrowser> browser,
                                      CefRefPtr<CefFrame> frame,
                                      CefRefPtr<CefV8Context> context) {
     LOG(INFO) << "[Renderer process] OnContextReleased()";
+    LOG(INFO) << "[Renderer process] [#699] OnContextReleased() "
+              << Issue699ViewInfo(browser)
+              << " frameId=" << frame->GetIdentifier().ToString()
+              << " isMain=" << frame->IsMain();
     CefRefPtr<CefProcessMessage> message;
     CefRefPtr<CefListValue> arguments;
     // ------------------------------------------------------------------------
@@ -333,6 +382,11 @@ bool CefPythonApp::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
         if (args->GetSize() == 1
                 && args->GetType(0) == VTYPE_DICTIONARY
                 && args->GetDictionary(0)->IsValid()) {
+            LOG(INFO) << "[Renderer process] [#699] DoJavascriptBindings"
+                         " received " << Issue699ViewInfo(browser)
+                      << " frameId=" << frame->GetIdentifier().ToString()
+                      << " hadBindings="
+                      << (GetJavascriptBindings(browser).get() ? 1 : 0);
             // Is it necessary to make a copy? It won't harm.
             SetJavascriptBindings(browser,
                     args->GetDictionary(0)->Copy(false));

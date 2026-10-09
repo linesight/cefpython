@@ -45,6 +45,12 @@ bool V8FunctionHandler::Execute(const CefString& functionName,
                     "V8FunctionHandler::Execute() FAILED: " \
                     "function does not exist: ").append(functionName) \
                     .append("()");
+            LOG(INFO) << "[Renderer process] [#699] V8FunctionHandler::"
+                         "Execute() pre-check FAILED " << Issue699ViewInfo(browser)
+                      << " function=" << functionName.ToString()
+                      << " storedBindings=" << (cefPythonApp_.get()
+                          && cefPythonApp_->GetJavascriptBindings(browser).get()
+                          ? 1 : 0);
             // Must return true for the exception to be thrown.
             return true;
         }
