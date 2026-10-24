@@ -235,12 +235,11 @@ def create_browser(renderer_flags):
     logging.info("Device scale factor: %.2f",
                  main_window.get_device_scale_factor())
     windows = WindowManager(main_window, renderer_flags)
-    browser.SetClientHandler(LoadHandler())
+    browser.SetClientHandler(LoadHandler(windows))
     browser.SetClientHandler(LifespanHandler(windows))
     browser.SetClientHandler(RenderHandler(windows))
     # Must call WasResized at least once to let know CEF that
     # viewport size is available and that OnPaint may be called.
-    browser.SetFocus(True)
     browser.WasResized()
     return windows
 
@@ -319,6 +318,14 @@ def handle_event(event, windows):
     if event.type == sdl2.SDL_WINDOWEVENT:
         if event.window.event == sdl2.SDL_WINDOWEVENT_SIZE_CHANGED:
             window.resized()
+        elif event.window.event == sdl2.SDL_WINDOWEVENT_FOCUS_GAINED:
+            # CEF doesn't know about the SDL window in off-screen
+            # mode, so tell the browser when the window gets or loses
+            # keyboard focus. Without browser focus web pages don't
+            # show the text cursor in input boxes.
+            browser.SetFocus(True)
+        elif event.window.event == sdl2.SDL_WINDOWEVENT_FOCUS_LOST:
+            browser.SetFocus(False)
         elif event.window.event == sdl2.SDL_WINDOWEVENT_CLOSE:
             # A popup window was closed
             browser.CloseBrowser(True)
@@ -500,6 +507,11 @@ class BrowserWindow(object):
         self.available_rect = [0, 0, width, height]
         self.resize_time = None
 
+    def has_focus(self):
+        """Return True if the window has keyboard focus."""
+        return bool(sdl2.SDL_GetWindowFlags(self.window)
+                    & sdl2.SDL_WINDOW_INPUT_FOCUS)
+
     def get_size(self):
         """Return the window size in screen coordinates (CEF view size)."""
         width, height = ctypes.c_int(), ctypes.c_int()
@@ -651,7 +663,19 @@ class WindowManager(object):
 
 
 class LoadHandler(object):
-    """Simple handler for loading URLs."""
+    """Logs page loading and restores browser focus after navigation."""
+
+    def __init__(self, windows):
+        self.windows = windows
+
+    def OnLoadStart(self, browser, frame, **_):
+        # Temporary fix for CEF issue #4301: some navigations lose the
+        # browser focus, e.g. google.com's first load or a link to
+        # another site.
+        # https://github.com/chromiumembedded/cef/issues/4301
+        if (frame.IsMain()
+                and self.windows.get_or_create_window(browser).has_focus()):
+            browser.SetFocus(True)
 
     def OnLoadingStateChange(self, is_loading, **_):
         if not is_loading:
