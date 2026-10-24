@@ -520,6 +520,7 @@ most important application-facing changes are:
 | `Browser.Find(search_id, search_text, ...)` | The `search_id` argument was removed. |
 | `Browser.SendFocusEvent(focus)` | Kept as a compatibility alias; new code should use `SetFocus(focus)`. |
 | `Browser.SetMouseCursorChangeDisabled()` / `IsMouseCursorChangeDisabled()` | Removed with no direct replacement. |
+| `Browser.SetJavascriptBindings()` right after `CreateBrowserSync()` | CEF now delivers the bindings message only once the page's frame is ready in the renderer process, usually after inline scripts and `window.onload` have run. Start page code that uses the bindings from Python after calling `SetJavascriptBindings()`, for example with `Frame.ExecuteFunction()` in `LoadHandler.OnLoadEnd` as in [tutorial.py](../examples/tutorial.py). |
 | `Frame.LoadString(value, url)` | Use `Frame.LoadUrl()` with a `data:` URL. |
 | `Request.IsReadOnly()`, `GetResourceType()`, and `GetTransitionType()` | Removed from the documentation. They were never implemented, so calling them raised `AttributeError` in v66 too. |
 | `Response.GetHeader(name)` | Renamed to `Response.GetHeaderByName(name)`. |

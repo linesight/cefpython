@@ -289,11 +289,15 @@ source code:
 set_client_handlers(browser)
 ...
 def set_client_handlers(browser):
-    client_handlers = [LoadHandler(), DisplayHandler()]
+    bindings = create_javascript_bindings(browser)
+    client_handlers = [LoadHandler(bindings), DisplayHandler()]
     for handler in client_handlers:
         browser.SetClientHandler(handler)
 ...
 class LoadHandler(object):
+    def __init__(self, bindings):
+        self.bindings = bindings
+
     def OnLoadingStateChange(self, browser, is_loading, **_):
         # This callback is called twice, once when loading starts
         # (is_loading=True) and second time when loading ends
@@ -348,18 +352,35 @@ messaging:
    however pass Python functions when executing javascript
    callbacks mentioned earlier.
 
-In [tutorial.py](../examples/tutorial.py) example you will find
-example usage of javascript bindings, javascript callbacks
-and python callbacks. Here is part of its source code:
+The [tutorial.py](../examples/tutorial.py) example demonstrates javascript
+bindings, javascript callbacks and python callbacks.
+
+Bindings reach the renderer asynchronously, so inline scripts and
+`window.onload` may run before they are available. The example creates
+one JavascriptBindings object and reuses it across page loads. In the
+main frame's `OnLoadEnd` callback, it sends the bindings, then queues a
+call to `run_tutorial()` on that same frame. By the time the function
+executes, the bindings have been applied. Here is the relevant Python
+code:
 
 ```python
-set_javascript_bindings(browser)
+bindings = create_javascript_bindings(browser)
+browser.SetClientHandler(LoadHandler(bindings))
 ...
-def set_javascript_bindings(browser):
+class LoadHandler(object):
+    def __init__(self, bindings):
+        self.bindings = bindings
+
+    def OnLoadEnd(self, browser, frame, **_):
+        if frame.IsMain():
+            browser.SetJavascriptBindings(self.bindings)
+            frame.ExecuteFunction("run_tutorial")
+...
+def create_javascript_bindings(browser):
     bindings = cef.JavascriptBindings(
             bindToFrames=False, bindToPopups=False)
     bindings.SetFunction("html_to_data_uri", html_to_data_uri)
-    browser.SetJavascriptBindings(bindings)
+    return bindings
 ...
 def html_to_data_uri(html, js_callback=None):
     # This function is called in two ways:
@@ -377,12 +398,19 @@ def html_to_data_uri(html, js_callback=None):
         js_callback.Call(ret)
     else:
         return ret
-...
+```
+
+The page defines the javascript functions. Python starts `run_tutorial()`
+after sending the bindings:
+
+```html
 <script>
 function js_callback_1(ret) {
     js_print("Javascript", "html_to_data_uri", ret);
 }
-html_to_data_uri("test", js_callback_1);
+function run_tutorial() {
+    html_to_data_uri("test", js_callback_1);
+}
 </script>
 ```
 

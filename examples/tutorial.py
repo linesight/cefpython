@@ -39,14 +39,14 @@ HTML_code = """
         py_callback("String sent from Javascript");
     }
 
-    window.onload = function(){
-        js_print("Javascript", "window.onload", "Called");
+    function run_tutorial() {
+        js_print("Javascript", "run_tutorial", "Called");
         js_print("Javascript", "python_property", python_property);
         js_print("Javascript", "navigator.userAgent", navigator.userAgent);
         js_print("Javascript", "cefpython_version", cefpython_version.version);
         html_to_data_uri("test", js_callback_1);
         external.test_multiple_callbacks(js_callback_2);
-    };
+    }
     </script>
 </head>
 <body>
@@ -69,7 +69,6 @@ def main():
     browser = cef.CreateBrowserSync(url=html_to_data_uri(HTML_code),
                                     window_title="Tutorial")
     set_client_handlers(browser)
-    set_javascript_bindings(browser)
     cef.MessageLoop()
     cef.Shutdown()
 
@@ -113,12 +112,13 @@ def set_global_handler():
 
 
 def set_client_handlers(browser):
-    client_handlers = [LoadHandler(), DisplayHandler()]
+    bindings = create_javascript_bindings(browser)
+    client_handlers = [LoadHandler(bindings), DisplayHandler()]
     for handler in client_handlers:
         browser.SetClientHandler(handler)
 
 
-def set_javascript_bindings(browser):
+def create_javascript_bindings(browser):
     external = External(browser)
     bindings = cef.JavascriptBindings(
             bindToFrames=False, bindToPopups=False)
@@ -126,7 +126,7 @@ def set_javascript_bindings(browser):
     bindings.SetProperty("cefpython_version", cef.GetVersion())
     bindings.SetFunction("html_to_data_uri", html_to_data_uri)
     bindings.SetObject("external", external)
-    browser.SetJavascriptBindings(bindings)
+    return bindings
 
 
 def js_print(browser, lang, event, msg):
@@ -137,19 +137,30 @@ def js_print(browser, lang, event, msg):
 class GlobalHandler(object):
     def OnAfterCreated(self, browser, **_):
         """Called after a new browser is created."""
-        # DOM is not yet loaded. Using js_print at this moment will
-        # throw an error: "Uncaught ReferenceError: js_print is not defined".
-        # We make this error on purpose. This error will be intercepted
-        # in DisplayHandler.OnConsoleMessage.
+        # The page is not loaded yet. CEF queues this javascript call
+        # until the frame is ready in the Renderer process. By then
+        # js_print may already be defined; otherwise the error is
+        # intercepted in DisplayHandler.OnConsoleMessage.
         js_print(browser, "Python", "OnAfterCreated",
-                 "This will probably never display as DOM is not yet loaded")
-        # Delay print by 0.5 sec, because js_print is not available yet
+                 "Called before the page was loaded")
+        # Delay print by 0.5 sec, because js_print may not be available yet
         args = [browser, "Python", "OnAfterCreated",
                 "(Delayed) Browser id="+str(browser.GetIdentifier())]
         threading.Timer(0.5, js_print, args).start()
 
 
 class LoadHandler(object):
+    def __init__(self, bindings):
+        self.bindings = bindings
+
+    def OnLoadEnd(self, browser, frame, **_):
+        if frame.IsMain():
+            # Send the bindings, then call run_tutorial(). The Renderer
+            # process handles both in order, so the bindings are set
+            # when run_tutorial() runs.
+            browser.SetJavascriptBindings(self.bindings)
+            frame.ExecuteFunction("run_tutorial")
+
     def OnLoadingStateChange(self, browser, is_loading, **_):
         """Called when the loading state has changed."""
         if not is_loading:

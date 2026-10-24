@@ -416,7 +416,7 @@ image.save("image.png", "PNG")
 | --- | --- |
 | __Return__ | [JavascriptBindings](JavascriptBindings.md) |
 
-Returns the [JavascriptBindings](JavascriptBindings.md) object that was passed to [cefpython](cefpython.md).CreateBrowserSync().
+Returns the [JavascriptBindings](JavascriptBindings.md) object assigned with [SetJavascriptBindings](#setjavascriptbindings), or None.
 
 
 ### GetMainFrame
@@ -883,6 +883,8 @@ Set whether the browser is focused.
 | __Return__ | void |
 
 Associates this browser with the specified JavascriptBindings object and sends its binding data to the renderer. If equivalent binding data have already been applied to an existing V8 context, they are not applied again. When the binding data change, the current bindings are applied, but JavaScript globals from the previous bindings that are absent from the new bindings are not removed. To force reapplication of unchanged bindings, call JavascriptBindings.Rebind(). That method affects all browsers assigned the same JavascriptBindings object.
+
+The binding data are sent to the renderer asynchronously, so inline scripts and window.onload may run before the bindings are available. JavaScript queued in the main frame after this call, with [Frame.ExecuteFunction](Frame.md#executefunction) or [Frame.ExecuteJavascript](Frame.md#executejavascript), runs after the bindings have been applied. See the [Tutorial](../docs/Tutorial.md#javascript-integration) for an example.
 
 
 ### SetUserData
