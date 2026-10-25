@@ -40,8 +40,6 @@ Known issues (pull requests are welcome):
 - There are issues when running on slow machine - key events are being
   lost (noticed on Mac only), see Issue #324 for more details
 - Performance is still not perfect, see Issue #324 for further details
-- Keyboard modifiers that are not yet handled in this example:
-  ctrl, marking text inputs with the shift key.
 
 GUI controls:
   Due to SDL2's lack of GUI widgets there are no GUI controls
@@ -370,7 +368,6 @@ def handle_event(event, windows):
         text = event.text.text.decode("utf-8")
         for keycode in get_utf16_code_units(text):
             send_key_event(browser, cef.KEYEVENT_CHAR, keycode, keycode)
-            send_key_event(browser, cef.KEYEVENT_KEYUP, keycode, keycode)
     elif event.type in (sdl2.SDL_KEYDOWN, sdl2.SDL_KEYUP):
         handle_key_event(event.key, browser)
 
@@ -431,6 +428,7 @@ MOUSE_BUTTONS = {
 # See https://wiki.libsdl.org/SDLKeycodeLookup to map more keys.
 KEY_CODES = {
     sdl2.SDLK_RETURN: 13,
+    sdl2.SDLK_TAB: 9,
     sdl2.SDLK_DELETE: 46,
     sdl2.SDLK_BACKSPACE: 8,
     sdl2.SDLK_LEFT: 37,
@@ -439,7 +437,31 @@ KEY_CODES = {
     sdl2.SDLK_DOWN: 40,
     sdl2.SDLK_HOME: 36,
     sdl2.SDLK_END: 35,
+    sdl2.SDLK_PAGEUP: 33,
+    sdl2.SDLK_PAGEDOWN: 34,
 }
+
+# Windows key codes for keys that type text. Their text comes with
+# SDL_TEXTINPUT events, but web pages need key down events too, e.g.
+# for Ctrl+C or for "/" to focus a search box. Space is left out,
+# because CEF can't tell it from its character on all platforms, see
+# handle_key_event.
+TEXT_KEY_CODES = {
+    sdl2.SDLK_SEMICOLON: 186,
+    sdl2.SDLK_EQUALS: 187,
+    sdl2.SDLK_COMMA: 188,
+    sdl2.SDLK_MINUS: 189,
+    sdl2.SDLK_PERIOD: 190,
+    sdl2.SDLK_SLASH: 191,
+    sdl2.SDLK_BACKQUOTE: 192,
+    sdl2.SDLK_LEFTBRACKET: 219,
+    sdl2.SDLK_BACKSLASH: 220,
+    sdl2.SDLK_RIGHTBRACKET: 221,
+    sdl2.SDLK_QUOTE: 222,
+}
+# Letters and digits have the codes of the characters A-Z and 0-9
+TEXT_KEY_CODES.update({sdl2.SDLK_a + i: ord("A") + i for i in range(26)})
+TEXT_KEY_CODES.update({sdl2.SDLK_0 + i: ord("0") + i for i in range(10)})
 
 # The key events on MacOS have different native keycode than on other operating
 # systems. This table is a translation from Windows-keycodes to MacOS ones.
@@ -460,11 +482,24 @@ MACOS_TRANSLATION_TABLE = {
 
 def handle_key_event(key_event, browser):
     """
-    Handle key down and key up events for non-text keys.
+    Handle key down and key up events.
 
-    Text keys are handled with SDL_TEXTINPUT events in handle_event.
+    The text of text keys comes with SDL_TEXTINPUT events, see
+    handle_event.
     """
-    keycode = KEY_CODES.get(key_event.keysym.sym)
+    sym = key_event.keysym.sym
+    modifiers = get_key_modifiers(key_event.keysym.mod)
+    if sym in TEXT_KEY_CODES:
+        # Like upstream cefclient, send the character with the key
+        # events of text keys, so that CEF doesn't need their native
+        # key codes, which this example doesn't have. The SDL keycode
+        # of these keys is their character.
+        event_type = (cef.KEYEVENT_KEYUP if key_event.type == sdl2.SDL_KEYUP
+                      else cef.KEYEVENT_RAWKEYDOWN)
+        send_key_event(browser, event_type, TEXT_KEY_CODES[sym], sym,
+                       modifiers=modifiers)
+        return
+    keycode = KEY_CODES.get(sym)
     if keycode is None:
         return
     if key_event.type == sdl2.SDL_KEYUP:
@@ -473,30 +508,31 @@ def handle_key_event(key_event, browser):
         # one of the above-listed keys will eat the next
         # normal keypress.
         send_key_event(browser, cef.KEYEVENT_KEYUP, keycode, keycode,
-                       get_native_key(keycode))
+                       get_native_key(keycode), modifiers)
     else:
         # For raw key events, the character and unmodified
         # character codes should be 0.
         send_key_event(browser, cef.KEYEVENT_RAWKEYDOWN, keycode, 0,
-                       get_native_key(keycode))
+                       get_native_key(keycode), modifiers)
         if key_event.keysym.sym == sdl2.SDLK_RETURN:
             # SDL sends no SDL_TEXTINPUT event for Enter. The char
             # event submits the form of a single-line input and
             # inserts a newline in a text area, unless the page
             # called preventDefault() on the key down event.
-            send_key_event(browser, cef.KEYEVENT_CHAR, keycode, keycode)
+            send_key_event(browser, cef.KEYEVENT_CHAR, keycode, keycode,
+                           modifiers=modifiers)
 
 
 def send_key_event(browser, event_type, keycode, character,
-                   native_keycode=0):
-    """Send a key event with no modifier keys to the browser."""
+                   native_keycode=0, modifiers=cef.EVENTFLAG_NONE):
+    """Send a key event to the browser."""
     browser.SendKeyEvent({
         "type": event_type,
         "windows_key_code": keycode,
         "native_key_code": native_keycode,
         "character": character,
         "unmodified_character": character,
-        "modifiers": cef.EVENTFLAG_NONE
+        "modifiers": modifiers
     })
 
 
