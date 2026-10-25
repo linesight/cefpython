@@ -347,7 +347,12 @@ def handle_event(event, windows):
         # preciseX/Y (SDL >= 2.0.18) are fractional for smooth scrolling
         dx = getattr(event.wheel, "preciseX", event.wheel.x)
         dy = getattr(event.wheel, "preciseY", event.wheel.y)
-        browser.SendMouseWheelEvent(0, 0, int(dx * SCROLL_STEP),
+        # Send the event at the mouse position, so that it scrolls the
+        # element under the mouse. Otherwise e.g. an open <select>
+        # dropdown closes instead of scrolling.
+        x, y = ctypes.c_int(), ctypes.c_int()
+        sdl2.SDL_GetMouseState(ctypes.byref(x), ctypes.byref(y))
+        browser.SendMouseWheelEvent(x.value, y.value, int(dx * SCROLL_STEP),
                                     int(dy * SCROLL_STEP))
     elif event.type == sdl2.SDL_TEXTINPUT:
         # Handle text events to get actual characters typed rather
