@@ -326,17 +326,25 @@ def handle_event(event, windows):
             browser.SetFocus(True)
         elif event.window.event == sdl2.SDL_WINDOWEVENT_FOCUS_LOST:
             browser.SetFocus(False)
+        elif event.window.event == sdl2.SDL_WINDOWEVENT_LEAVE:
+            # Lets web pages end hover effects, e.g. close a menu that
+            # opened when the mouse moved over it
+            x, y = get_mouse_position()
+            browser.SendMouseMoveEvent(x, y, True, cef.EVENTFLAG_NONE)
         elif event.window.event == sdl2.SDL_WINDOWEVENT_CLOSE:
             # A popup window was closed
             browser.CloseBrowser(True)
     elif event.type in (sdl2.SDL_MOUSEBUTTONDOWN, sdl2.SDL_MOUSEBUTTONUP):
-        if event.button.button == sdl2.SDL_BUTTON_LEFT:
+        button = MOUSE_BUTTONS.get(event.button.button)
+        if button is not None:
             browser.SendMouseClickEvent(
                 event.button.x,
                 event.button.y,
-                cef.MOUSEBUTTON_LEFT,
+                button,
                 event.type == sdl2.SDL_MOUSEBUTTONUP,
-                1
+                # 2 for a double click, e.g. to select a word
+                event.button.clicks,
+                get_key_modifiers(sdl2.SDL_GetModState())
             )
     elif event.type == sdl2.SDL_MOUSEMOTION:
         browser.SendMouseMoveEvent(event.motion.x,
@@ -350,10 +358,12 @@ def handle_event(event, windows):
         # Send the event at the mouse position, so that it scrolls the
         # element under the mouse. Otherwise e.g. an open <select>
         # dropdown closes instead of scrolling.
-        x, y = ctypes.c_int(), ctypes.c_int()
-        sdl2.SDL_GetMouseState(ctypes.byref(x), ctypes.byref(y))
-        browser.SendMouseWheelEvent(x.value, y.value, int(dx * SCROLL_STEP),
-                                    int(dy * SCROLL_STEP))
+        x, y = get_mouse_position()
+        # SDL's x is positive for scrolling right, CEF's deltaX is
+        # positive for scrolling left
+        browser.SendMouseWheelEvent(x, y, int(-dx * SCROLL_STEP),
+                                    int(dy * SCROLL_STEP),
+                                    get_key_modifiers(sdl2.SDL_GetModState()))
     elif event.type == sdl2.SDL_TEXTINPUT:
         # Handle text events to get actual characters typed rather
         # than the key pressed.
@@ -365,9 +375,30 @@ def handle_event(event, windows):
         handle_key_event(event.key, browser)
 
 
-def get_mouse_modifiers(button_state):
-    """Return CEF flags for the held mouse buttons, for dragging."""
+def get_mouse_position():
+    """Return the mouse position in the window that has the mouse."""
+    x, y = ctypes.c_int(), ctypes.c_int()
+    sdl2.SDL_GetMouseState(ctypes.byref(x), ctypes.byref(y))
+    return x.value, y.value
+
+
+def get_key_modifiers(key_mod):
+    """Return CEF flags for the held modifier keys in SDL_Keymod."""
     modifiers = cef.EVENTFLAG_NONE
+    if key_mod & sdl2.KMOD_SHIFT:
+        modifiers |= cef.EVENTFLAG_SHIFT_DOWN
+    if key_mod & sdl2.KMOD_CTRL:
+        modifiers |= cef.EVENTFLAG_CONTROL_DOWN
+    if key_mod & sdl2.KMOD_ALT:
+        modifiers |= cef.EVENTFLAG_ALT_DOWN
+    if key_mod & sdl2.KMOD_GUI:
+        modifiers |= cef.EVENTFLAG_COMMAND_DOWN
+    return modifiers
+
+
+def get_mouse_modifiers(button_state):
+    """Return CEF flags for the held mouse buttons and modifier keys."""
+    modifiers = get_key_modifiers(sdl2.SDL_GetModState())
     if button_state & sdl2.SDL_BUTTON_LMASK:
         modifiers |= cef.EVENTFLAG_LEFT_MOUSE_BUTTON
     if button_state & sdl2.SDL_BUTTON_MMASK:
@@ -388,6 +419,13 @@ def get_utf16_code_units(text):
     return [int.from_bytes(data[i:i + 2], "little")
             for i in range(0, len(data), 2)]
 
+
+# CEF mouse buttons for SDL mouse buttons
+MOUSE_BUTTONS = {
+    sdl2.SDL_BUTTON_LEFT: cef.MOUSEBUTTON_LEFT,
+    sdl2.SDL_BUTTON_MIDDLE: cef.MOUSEBUTTON_MIDDLE,
+    sdl2.SDL_BUTTON_RIGHT: cef.MOUSEBUTTON_RIGHT,
+}
 
 # Windows key codes for the non-text keys handled in handle_key_event.
 # See https://wiki.libsdl.org/SDLKeycodeLookup to map more keys.
