@@ -256,7 +256,12 @@ Also configurable using the "main-bundle-path" command-line switch.
 ### debug
 
 (bool)
-Whether cefpython should display debug messages in console and write them to "log_file" (see the next option).
+Whether cefpython logs its own debug messages from before CEF is
+initialized, such as "Initialize() called". cefpython logs its debug
+messages at INFO level, so to see them, set "log_severity" to
+`LOGSEVERITY_INFO` or lower, which also turns this option on. The
+`--debug` command line flag does both, see the
+[Knowledge Base](../docs/Knowledge-Base.md#how-to-enable-debug-information-in-examples).
 
 In previous versions of cefpython, this option was set by overwriting module's g_debug global variable, this way of setting is now deprecated.
 
@@ -264,12 +269,11 @@ In previous versions of cefpython, this option was set by overwriting module's g
 ### log_file
 
 (string)
-The directory and file name to use for the debug log. If empty a default
-log file name and location will be used. On Windows and Linux a "debug.log"
-file will be written in the main executable directory. On Mac OS X a
-"~/Library/Logs/<app name>_debug.log" file will be written where <app name>
-is the name of the main app executable. Also configurable using the
-"log-file" command-line switch.
+The file that the logs of all CEF processes are written to. On Windows
+and Linux it defaults to "debug.log" in the current working directory,
+also when empty. On Mac, if empty, CEF's default location is used. The
+file isn't used when logs go to the terminal, that is with the `--debug`
+command line flag or the "enable-logging=stderr" switch.
 
 
 ### log_severity

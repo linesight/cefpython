@@ -203,7 +203,7 @@ cef.Initialize(settings=settings)
 ```
 
 Alternatively you can pass `--debug` flag on the command line
-and these settings will be set automatically.
+to print the logs to the terminal instead.
 
 **Browser settings**
 

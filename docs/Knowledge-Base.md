@@ -50,24 +50,31 @@ following format if using e.g. cefpython v57.0: `cefpython3 == 57.0`.
 You can pass "--debug" command line flag to any of CEF Python
 examples and unit tests. It will also work with your app, as
 this feature is enabled in CEF Python's core. When this flag is
-passed the following settings will be set:
+passed, cefpython does the same as this code:
 ```python
 settings = {
     "debug": True,
     "log_severity": cef.LOGSEVERITY_INFO,
-    "log_file": "debug.log",
 }
-cef.Initialize(settings=settings)
+switches = {
+    "enable-logging": "stderr",
+}
+cef.Initialize(settings=settings, switches=switches)
 ```
 
-Now you should see debug information displayed in console like this:
-```
-[CEF Python] Initialize() called
-[CEF Python] CefExecuteProcess(): exitCode = -1
-[CEF Python] CefInitialize()
-[CEF Python] App_OnBeforeCommandLineProcessing_BrowserProcess()
-[CEF Python] Command line string for the browser process:  ...
-```
+The logs of all CEF processes are then printed to the terminal or
+console instead of being written to "debug.log".
+
+Without `--debug`, the logs of all CEF processes are written to
+ApplicationSettings.[log_file](../api/ApplicationSettings.md#log_file),
+"debug.log" in the current working directory by default on Windows and
+Linux. Only errors are logged unless you change
+ApplicationSettings.[log_severity](../api/ApplicationSettings.md#log_severity).
+
+To save the `--debug` output to a file on Linux, run
+`python app.py --debug 2>&1 | tee debug.log`. On Windows, CEF's child
+processes write to the console window directly, so redirecting the
+output of an app captures only the logs of the main process.
 
 
 ## Remote debugging with Google Chrome instance

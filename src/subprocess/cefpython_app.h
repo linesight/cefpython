@@ -11,8 +11,8 @@
 // CefPythonApp class is instantiated in subprocess and in
 // cefpython.pyx for the browser process, so the code is shared.
 // Using printf() in CefRenderProcessHandler won't work on some
-// operating systems, use LOG(INFO) macro instead, it will write
-// the message to the "debug.log" file.
+// operating systems, use LOG(INFO) macro instead, it writes the
+// message to the log file, or to the terminal with --debug.
 
 class CefPythonApp :
         public CefApp,

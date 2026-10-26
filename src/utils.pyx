@@ -40,17 +40,32 @@ cpdef py_bool IsThread(int threadID):
 #       This change is required to work with Cython 0.20.
 
 cpdef object Debug(py_string msg):
-    """Print debug message. Will be shown only when settings.debug=True."""
+    """Log a debug message at INFO level. Messages from before CEF is
+    initialized are logged only when the "debug" setting is on."""
     # In Python 3 str or bytes may be passed
     if type(msg) != str and type(msg) == bytes:
         msg = msg.decode("utf-8", "replace")
     # Convert to str in case other kind of object was passed
     msg = str(msg)
     msg = "[Browser process] " + msg
-    # CEF logging is initialized only after CEF was initialized.
-    # Otherwise the default is LOGSEVERITY_INFO and log_file is
-    # none.
-    if g_cef_initialized or g_debug:
+    if g_early_log_messages is not None:
+        # CEF hasn't configured logging yet, see Initialize().
+        if g_debug:
+            g_early_log_messages.append(msg)
+    elif g_cef_initialized or g_debug:
+        cef_log_info(PyStringToChar(msg))
+
+cdef void FlushEarlyLogMessages() except *:
+    """Log the debug messages held back until CEF configured logging.
+    Called before the first child process launch is logged, or after
+    CefInitialize() returns, whichever comes first."""
+    global g_early_log_messages
+    cdef list messages = g_early_log_messages
+    cdef py_string msg
+    if messages is None:
+        return
+    g_early_log_messages = None
+    for msg in messages:
         cef_log_info(PyStringToChar(msg))
 
 cdef void NonCriticalError(py_string msg) except *:

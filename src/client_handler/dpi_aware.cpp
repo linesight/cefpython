@@ -120,9 +120,6 @@ void SetProcessDpiAware() {
                 GetProcAddress(GetModuleHandleA("user32.dll"),
                     "SetProcessDPIAware"));
     if (set_process_dpi_aware_func) {
-        // If cefpython.Initialize() wasn't yet called, then
-        // this log message won't be written, as g_debug is
-        // is set during CEF initialization.
         LOG(INFO) << "[Browser process] SetProcessDpiAware():"
                      " calling user32.dll SetProcessDPIAware";
         set_process_dpi_aware_func();

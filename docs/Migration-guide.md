@@ -545,6 +545,7 @@ Passing a removed setting raises an "Invalid appSettings key" or
 | --- | --- | --- |
 | `accept_language_list` | Application and browser | Removed; not yet exposed by CEF Python for CEF 147. |
 | `ignore_certificate_errors` | Application | Removed. |
+| `log_file` | Application | Defaults to "debug.log" in the current working directory on Windows and Linux. With the `--debug` flag, logs go to the terminal and `log_file` isn't written. |
 | `net_security_expiration_enabled` | Application | Removed upstream. |
 | `pack_loading_disabled` | Application | Removed with no replacement; pack loading can no longer be disabled. |
 | `persist_user_preferences` | Application | Removed; persistent Chrome profiles save preferences automatically. |

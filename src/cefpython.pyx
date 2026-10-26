@@ -309,6 +309,9 @@ cdef unique_ptr[MainMessageLoopExternalPump] g_external_message_pump
 cdef py_bool g_MessageLoop_called = False
 cdef py_bool g_MessageLoopWork_called = False
 cdef py_bool g_cef_initialized = False
+# Debug messages held back until CEF configured logging, see Initialize()
+# and FlushEarlyLogMessages(). None when messages are logged right away.
+cdef list g_early_log_messages = None
 
 cdef dict g_globalClientCallbacks = {}
 
@@ -373,16 +376,6 @@ include "handlers/v8function_handler.pyx"
 
 # -----------------------------------------------------------------------------
 # Utility functions to provide settings to the C++ browser process code.
-
-cdef public void cefpython_GetDebugOptions(
-        cpp_bool* debug
-        ) noexcept with gil:
-    # Called from subprocess/cefpython_app.cpp -> CefPythonApp constructor.
-    try:
-        debug[0] = <cpp_bool>bool(g_debug)
-    except:
-        (exc_type, exc_value, exc_trace) = sys.exc_info()
-        sys.excepthook(exc_type, exc_value, exc_trace)
 
 cdef public cpp_bool ApplicationSettings_GetBool(const char* key
         ) noexcept with gil:
@@ -464,15 +457,33 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
     global g_debug
     if "--debug" in sys.argv:
         application_settings["debug"] = True
-        application_settings["log_file"] = os.path.join(os.getcwd(),
-                                                        "debug.log")
         application_settings["log_severity"] = LOGSEVERITY_INFO
+        # Print the logs of all CEF/Chromium processes to the terminal or
+        # console (Issue #709). Chromium logs either to stderr or to a file,
+        # not to both, so "log_file" isn't used in this mode. Overrides an
+        # "enable-logging" switch passed by the app, like the settings above.
+        g_commandLineSwitches["enable-logging"] = "stderr"
         sys.argv.remove("--debug")
     if "debug" in application_settings:
         g_debug = bool(application_settings["debug"])
     if "log_severity" in application_settings:
         if application_settings["log_severity"] <= LOGSEVERITY_INFO:
             g_debug = True
+
+    # Chromium configures logging during CefInitialize(). Until then it
+    # logs to stderr on Linux and Mac, and to a "debug.log" file next to
+    # the executable (python.exe of the base Python installation, or a
+    # frozen app's .exe) on Windows. Hold cefpython's
+    # debug messages back until logging is configured, so that they go to
+    # the same place as the other logs (Issue #709). When logs go to stderr
+    # anyway, log them right away, so that they are printed in order and
+    # even if CefInitialize() crashes.
+    global g_early_log_messages
+    IF UNAME_SYSNAME == "Windows":
+        g_early_log_messages = []
+    ELSE:
+        if g_commandLineSwitches.get("enable-logging") != "stderr":
+            g_early_log_messages = []
 
     Debug("Initialize() called")
 
@@ -616,6 +627,47 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         # leaves an explicit caller-provided value untouched.
         g_commandLineSwitches.setdefault("no-sandbox", "")
 
+    # ------------------------------------------------------------------------
+    # Log file (Issue #709)
+    # ------------------------------------------------------------------------
+    # Unless logs go to stderr (--debug, or an "enable-logging=stderr" switch
+    # passed by the app), write the logs of all CEF/Chromium processes to one
+    # file, "debug.log" in the current directory by default.
+    # Not defaulted on Mac, where an app started from Finder has "/" as its
+    # current directory. Chromium on Windows rejects a relative --log-file
+    # path.
+    #
+    # CEF also accepts --log-file from the host command line. On Linux,
+    # CefMainArgs is built from sys.argv below; on Windows CEF reads the
+    # process command line itself. Preserve that value instead of appending
+    # the default later, which would make the default win when Chromium sees
+    # both switches.
+    command_line_log_file = None
+    for arg_index, arg in enumerate(sys.argv[1:], 1):
+        if arg.startswith("--log-file="):
+            command_line_log_file = arg[len("--log-file="):]
+        elif arg == "--log-file" and arg_index + 1 < len(sys.argv) \
+                and not sys.argv[arg_index + 1].startswith("-"):
+            command_line_log_file = sys.argv[arg_index + 1]
+    if g_commandLineSwitches.get("enable-logging") != "stderr":
+        IF UNAME_SYSNAME != "Darwin":
+            if not application_settings.get("log_file"):
+                application_settings["log_file"] = \
+                        command_line_log_file or "debug.log"
+        if application_settings.get("log_file"):
+            application_settings["log_file"] = os.path.abspath(
+                    application_settings["log_file"])
+        IF UNAME_SYSNAME == "Linux":
+            # Chromium doesn't pass --log-file to the zygote, so the renderer
+            # and GPU processes forked from it would log to
+            # <root_cache_path>/chrome_debug.log instead. cefpython appends
+            # g_commandLineSwitches to the command line of every child
+            # process, the zygote included. Not on Windows: Chromium passes
+            # child processes a handle to the log file there, and CHECKs that
+            # --log-file isn't already on their command line.
+            g_commandLineSwitches.setdefault(
+                    "log-file", application_settings["log_file"])
+
     cdef CefRefPtr[CefApp] cefApp = <CefRefPtr[CefApp]?>new CefPythonApp()
 
     IF UNAME_SYSNAME == "Windows":
@@ -666,6 +718,10 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         ret = CefInitialize(cefMainArgs, cefApplicationSettings, cefApp, NULL)
     IF UNAME_SYSNAME == "Linux":
         free(argv)
+
+    # Log the held back debug messages, unless the first child process
+    # launch already did.
+    FlushEarlyLogMessages()
 
     global g_cef_initialized
     g_cef_initialized = True

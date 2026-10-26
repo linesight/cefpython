@@ -17,6 +17,8 @@ cdef public void BrowserProcessHandler_OnBeforeChildProcessLaunch(
         CefRefPtr[CefCommandLine] cefCommandLine
         ) noexcept with gil:
     try:
+        # CEF has configured logging by now (Issue #709).
+        FlushEarlyLogMessages()
         AppendSwitchesToCommandLine(cefCommandLine, g_commandLineSwitches)
     except:
         (exc_type, exc_value, exc_trace) = sys.exc_info()
