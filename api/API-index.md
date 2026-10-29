@@ -421,6 +421,7 @@
   * [OnEraseBackground ](WindowUtils.md#onerasebackground-win)
   * [SetTitle ](WindowUtils.md#settitle-win)
   * [SetIcon ](WindowUtils.md#seticon-win)
+  * [GetGtkWindowHandle ](WindowUtils.md#getgtkwindowhandle-win)
   * [GetParentHandle](WindowUtils.md#getparenthandle)
   * [IsWindowHandle](WindowUtils.md#iswindowhandle)
   * [gtk_plug_new ](WindowUtils.md#gtk_plug_new-linux)

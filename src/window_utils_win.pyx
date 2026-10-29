@@ -4,7 +4,44 @@
 
 include "cefpython.pyx"
 
+from cpython.pycapsule cimport PyCapsule_GetPointer
+
+cdef extern from "client_handler/window_utils_win.h":
+    HWND GetGtkWin32WindowHandle(void* gdkWindow)
+
 class WindowUtils(object):
+
+    @classmethod
+    def GetGtkWindowHandle(cls, gdkWindow):
+        if gdkWindow is None:
+            raise TypeError("GetGtkWindowHandle: received None; realize the "
+                            "GTK widget before calling get_window()")
+        # A Gdk.Window implies Gdk is already imported. Do not select a
+        # GDK version on the caller's behalf.
+        gdk = sys.modules.get("gi.repository.Gdk")
+        window_type = getattr(gdk, "Window", None)
+        if window_type is None or not isinstance(gdkWindow, window_type):
+            received = type(gdkWindow)
+            raise TypeError("GetGtkWindowHandle expects a GTK 3 Gdk.Window, "
+                            "got %s.%s; pass widget.get_window() after "
+                            "realizing the widget" %
+                            (received.__module__, received.__name__))
+        if gdkWindow.is_destroyed():
+            raise ValueError("GetGtkWindowHandle: Gdk.Window has been "
+                             "destroyed")
+        # GDK cannot make a window native under an off-screen ancestor.
+        ancestor = gdkWindow
+        while ancestor is not None:
+            if ancestor.get_window_type() == gdk.WindowType.OFFSCREEN:
+                raise ValueError("GetGtkWindowHandle: an off-screen Gdk.Window "
+                                 "or its child has no native Windows handle")
+            ancestor = ancestor.get_parent()
+        cdef void* window = PyCapsule_GetPointer(gdkWindow.__gpointer__, NULL)
+        cdef HWND handle = GetGtkWin32WindowHandle(window)
+        if not handle:
+            raise RuntimeError("GetGtkWindowHandle failed, run with --debug "
+                               "to see why")
+        return <WindowHandle>handle
 
     @classmethod
     def OnSetFocus(cls, WindowHandle windowHandle, long msg, long wparam,

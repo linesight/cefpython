@@ -13,6 +13,7 @@ Table of contents:
   * [OnEraseBackground (Win)](#onerasebackground-win)
   * [SetTitle (Win)](#settitle-win)
   * [SetIcon (Win)](#seticon-win)
+  * [GetGtkWindowHandle (Win)](#getgtkwindowhandle-win)
   * [GetParentHandle](#getparenthandle)
   * [IsWindowHandle](#iswindowhandle)
   * [gtk_plug_new (Linux)](#gtk_plug_new-linux)
@@ -84,6 +85,36 @@ Windows-only. Set the title for the main window or popup window. The default imp
 | __Return__ | void |
 
 Windows-only. Set the icon for the popup window. The default implementation of [DisplayHandler](DisplayHandler.md).OnTitleChange() calls this method to set the icon for a window that wasn't created explicitily (for example a popup window), the icon is inherited from the parent window. Icon parameter accepts only "inherit", you cannot pass here a path to an icon (currently not implemented).
+
+
+### GetGtkWindowHandle (Win)
+
+| Parameter | Type |
+| --- | --- |
+| gdkWindow | Gdk.Window |
+| __Return__ | int |
+
+Windows-only. Returns the native window handle for a realized GTK 3
+`Gdk.Window` using the Win32 backend. Call on the GTK main thread. If the
+window is client-side, GDK may permanently create a native child window for
+it. Off-screen windows and their children cannot be used.
+
+Embed the browser in a child widget, not in the window itself, as the
+gtk3.py example does. GTK may draw the title bar inside the window, and the
+browser would cover it:
+
+```python
+browser_area = Gtk.DrawingArea()
+window.add(browser_area)
+browser_area.realize()
+handle = cef.WindowUtils.GetGtkWindowHandle(browser_area.get_window())
+```
+
+GTK 3 and PyGObject are required for this method. It raises `TypeError` if the
+argument is not a `Gdk.Window`, and `ValueError` if the window is destroyed,
+off-screen, or a child of an off-screen window. It raises `RuntimeError` if it
+cannot obtain a valid handle and logs the reason as a CEF warning (pass the
+`--debug` flag to see it).
 
 
 ### GetParentHandle
