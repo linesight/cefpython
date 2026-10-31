@@ -309,6 +309,7 @@ cdef unique_ptr[MainMessageLoopExternalPump] g_external_message_pump
 cdef py_bool g_MessageLoop_called = False
 cdef py_bool g_MessageLoopWork_called = False
 cdef py_bool g_cef_initialized = False
+cdef py_bool g_cef_initialized_successfully = False
 
 cdef dict g_globalClientCallbacks = {}
 
@@ -480,6 +481,11 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         g_commandLineSwitches.setdefault("log-file",
                                          application_settings["log_file"])
 
+    # Debug() reads log_severity before CEF logging is initialized.
+    global g_applicationSettings
+    g_applicationSettings["log_severity"] = application_settings.get(
+            "log_severity", LOGSEVERITY_ERROR)
+
     Debug("Initialize() called")
 
     # Additional initialization on Mac, see util_mac.mm.
@@ -645,7 +651,6 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
 
     # Make a copy as applicationSettings is a reference only
     # that might get destroyed later.
-    global g_applicationSettings
     for key in application_settings:
         g_applicationSettings[key] = copy.deepcopy(application_settings[key])
 
@@ -674,10 +679,25 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
         free(argv)
 
     global g_cef_initialized
+    global g_cef_initialized_successfully
     g_cef_initialized = True
+    g_cef_initialized_successfully = bool(ret)
 
     if not ret:
         Debug("CefInitialize() failed")
+
+    IF UNAME_SYSNAME == "Windows":
+        # Chromium logs the messages emitted before its logging is set up
+        # (e.g. CEF's own startup warnings) to a "debug.log" file located
+        # next to the executable (python.exe), regardless of the log_file
+        # setting. CEF has no API to change that (CEF Issue #2154), see
+        # also cefpython Issue #709.
+        Debug("Early CEF/Chromium startup messages may also be written to"
+              " \"%s\", even when --debug is used and regardless of"
+              " ApplicationSettings.log_file (Issue #709)" % os.path.join(
+                      os.path.dirname(getattr(sys, "_base_executable",
+                                              sys.executable)),
+                      "debug.log"))
 
     IF UNAME_SYSNAME == "Linux":
         WindowUtils.InstallX11ErrorHandlers()

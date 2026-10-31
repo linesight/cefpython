@@ -32,6 +32,7 @@
 #include "include/base/cef_bind.h"
 #include "include/base/cef_logging.h"
 #include "include/base/cef_callback.h"
+#include <cstdio>
 #include <vector>
 #include <algorithm>
 #include "v8utils.h"
@@ -84,8 +85,7 @@ void CefPythonApp::OnBeforeCommandLineProcessing(
     //            LOG(INFO) issues described at the top of this
     //            function. Command line string for subprocesses are
     //            are currently logged in OnBeforeChildProcess().
-    //            Command line string for the main browser process
-    //            is currently never logged.
+    //            Exception: the browser process, see below (Issue #709).
     std::string process_name = process_type.ToString();
     if (process_name.empty()) {
         process_name = "browser";
@@ -101,9 +101,15 @@ void CefPythonApp::OnBeforeCommandLineProcessing(
     std::string clString = command_line->GetCommandLineString().ToString();
     logMessage.append(clString.c_str());
     if (g_debug) {
+#ifdef BROWSER_PROCESS
+        // CEF logging is not initialized yet, write to stderr (Issue #709).
+        fprintf(stderr, "%s\n", logMessage.c_str());
+        fflush(stderr);
+#else
         // This code is currently never executed, see the "IMPORTANT"
         // comment above and comments at the top of this function.
         LOG(INFO) << logMessage.c_str();
+#endif
     }
 
 #ifdef OS_WIN
