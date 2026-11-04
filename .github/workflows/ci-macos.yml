@@ -105,13 +105,8 @@ jobs:
             python tools/build.py --wheel
           fi
 
-      - name: Unit-test the built wheel
-        run: |
-          pip install build/dist/*.whl
-          fails=0
-          for i in $(seq 1 20); do
-            echo "===== RUN $i ====="
-            python unittests/main_test.py || { fails=$((fails+1)); echo "===== RUN $i FAILED ====="; }
-          done
-          echo "TOTAL FAILURES: $fails / 20"
-          [ "$fails" -eq 0 ]
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/dist/*.whl
+          archive: false

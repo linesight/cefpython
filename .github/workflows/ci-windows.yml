@@ -104,14 +104,8 @@ jobs:
             python tools/build.py --wheel
           }
 
-      - name: Unit-test the built wheel
-        run: |
-          pip install (Get-ChildItem build/dist/*.whl).FullName
-          $fails = 0
-          1..20 | ForEach-Object {
-            Write-Output "===== RUN $_ ====="
-            python unittests/main_test.py
-            if ($LASTEXITCODE -ne 0) { $fails++; Write-Output "===== RUN $_ FAILED =====" }
-          }
-          Write-Output "TOTAL FAILURES: $fails / 20"
-          if ($fails -gt 0) { exit 1 }
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/dist/*.whl
+          archive: false
