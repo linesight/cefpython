@@ -1,37 +1,23 @@
 name: Cold main_test
 
 on:
-  workflow_dispatch:
-    inputs:
-      build_run_id:
-        description: "Run id of a CI Windows/macOS run that uploaded the wheel"
-        type: string
-      os:
-        description: "windows-2022 or macos-14"
-        type: string
-        default: "windows-2022"
-      count:
-        description: "Number of fresh VMs"
-        type: string
-        default: "30"
+  push:
+    branches: ["ci-debug-main-test"]
 
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.m.outputs.matrix }}
-    steps:
-      - id: m
-        run: |
-          python3 -c "import json;print('matrix='+json.dumps({'n':list(range(1,int('${{ inputs.count }}')+1))}))" >> "$GITHUB_OUTPUT"
-
   cold:
-    needs: plan
-    runs-on: ${{ inputs.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix:
+        os: [windows-2022, macos-15]
+        n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        include:
+          - os: windows-2022
+            build_run_id: "41929970102"
+          - os: macos-15
+            build_run_id: "41929974115"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -41,7 +27,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "${{ inputs.build_run_id }}" --repo "${{ github.repository }}" --pattern '*.whl' --dir wheel
+        run: gh run download "${{ matrix.build_run_id }}" --repo "${{ github.repository }}" --pattern '*.whl' --dir wheel
       - name: Install wheel
         shell: bash
         run: pip install wheel/*.whl || pip install wheel/*/*.whl
@@ -50,7 +36,7 @@ jobs:
         run: |
           fails=0
           for i in 1 2 3; do
-            echo "===== VM ${{ matrix.n }} RUN $i ====="
+            echo "===== VM ${{ matrix.os }} ${{ matrix.n }} RUN $i ====="
             python unittests/main_test.py || { fails=$((fails+1)); echo "===== VM ${{ matrix.n }} RUN $i FAILED ====="; }
           done
           [ "$fails" -eq 0 ]
