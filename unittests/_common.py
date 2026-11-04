@@ -28,6 +28,13 @@ MAIN_BROWSER_ID = 1
 POPUP_BROWSER_ID = 2
 
 g_subtests_ran = 0
+g_dbg_t0 = time.monotonic()
+
+
+def dbg(message):
+    """Timestamped diagnostic line."""
+    print("[dbg %7.3f] %s" % (time.monotonic() - g_dbg_t0, message))
+    sys.stdout.flush()
 g_js_code_completed = False
 g_on_load_end_callbacks = []
 
@@ -75,6 +82,7 @@ def js_code_completed():
     bindings it can take some time, because these bindings are sent
     via IPC messaging to the Renderer process."""
     global g_js_code_completed
+    dbg("js_code_completed called")
     assert not g_js_code_completed
     g_js_code_completed = True
     subtest_message("js_code_completed() ok")
@@ -131,6 +139,7 @@ class DisplayHandler(object):
 
 
 def close_popup(global_handler, browser):
+    dbg("close_popup")
     browser.CloseBrowser()
     global_handler.PopupClosed_True = True
 
@@ -151,6 +160,7 @@ def close_devtools(global_handler):
         cef.PostDelayedTask(cef.TID_UI, 100, close_devtools, global_handler)
         return
     global_handler.HasDevTools_True = True
+    dbg("close_devtools: calling CloseDevTools")
     main_browser.CloseDevTools()
     subtest_message("DevTools popup ok")
 
@@ -169,6 +179,8 @@ class GlobalHandler(object):
             self.HasDevTools_True = False
 
     def _OnAfterCreated(self, browser, **_):
+        dbg("GlobalHandler.OnAfterCreated id=%s popup=%s"
+            % (browser.GetIdentifier(), browser.IsPopup()))
         # For asserts that are checked automatically before shutdown its
         # values should be set first, so that when other asserts fail
         # (the ones called through the test_case member) they are reported
@@ -211,13 +223,20 @@ class LoadHandler(object):
         # self.OnLoadingStateChange_Start_True = False # FAILS
         self.OnLoadingStateChange_End_True = False
 
+    def OnLoadError(self, browser, frame, error_code, error_text_out,
+                    failed_url, **_):
+        dbg("LoadHandler.OnLoadError code=%s url=%s" % (error_code,
+                                                         failed_url[:60]))
+
     def OnLoadStart(self, browser, frame, **_):
+        dbg("LoadHandler.OnLoadStart")
         self.test_case.assertFalse(self.OnLoadStart_True)
         self.OnLoadStart_True = True
         self.test_case.assertEqual(browser.GetUrl(), frame.GetUrl())
         self.test_case.assertEqual(browser.GetUrl(), self.datauri)
 
     def OnLoadEnd(self, browser, frame, http_code, **_):
+        dbg("LoadHandler.OnLoadEnd http_code=%s" % http_code)
         # OnLoadEnd should be called only once
         self.test_case.assertFalse(self.OnLoadEnd_True)
         self.OnLoadEnd_True = True
@@ -234,6 +253,7 @@ class LoadHandler(object):
 
     def OnLoadingStateChange(self, browser, is_loading, can_go_back,
                              can_go_forward, **_):
+        dbg("LoadHandler.OnLoadingStateChange is_loading=%s" % is_loading)
         if is_loading:
             # TODO: this test fails, looks like OnLoadingStaetChange with
             #       is_loading=False is being called very fast, before

@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.12"]
 
     steps:
       - name: Checkout
@@ -107,19 +107,11 @@ jobs:
 
       - name: Unit-test the built wheel
         run: |
-          # Install the wheel and run the unit tests against the INSTALLED
-          # package. No PYTHONPATH and no dev .pth (build.py --wheel doesn't
-          # write one), so build/package/ is not on sys.path and
-          # import cefpython3 resolves to the installed wheel.
           pip install build/dist/*.whl
-          python unittests/_test_runner.py
-
-      - name: Smoke-test the built wheel
-        timeout-minutes: 5
-        run: python tools/smoke_test.py
-
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v7
-        with:
-          path: build/dist/*.whl
-          archive: false
+          fails=0
+          for i in $(seq 1 20); do
+            echo "===== RUN $i ====="
+            python unittests/main_test.py || { fails=$((fails+1)); echo "===== RUN $i FAILED ====="; }
+          done
+          echo "TOTAL FAILURES: $fails / 20"
+          [ "$fails" -eq 0 ]

@@ -133,6 +133,7 @@ def main_test_async_completed(global_handler, objects, loading_progress):
 
 
 def _enable_and_trigger_auto_resize(browser):
+    dbg("_enable_and_trigger_auto_resize")
     browser.SetAutoResizeEnabled(enabled=True,
                                  min_size=[800, 600],
                                  max_size=[1024, 768])
@@ -338,6 +339,20 @@ class MainTest_IsolatedTest(unittest.TestCase):
             async_completed,
             "Timed out waiting for load/JavaScript callbacks, popup "
             "destruction and DevTools closure")
+        if not async_completed:
+            main_browser = cef.GetBrowserByIdentifier(MAIN_BROWSER_ID)
+            dbg("TIMEOUT state: js_code_completed=%s HasDevTools_True=%s "
+                "main_browser=%s main_HasDevTools=%s popup=%s progress=%s"
+                % (is_js_code_completed(), global_handler.HasDevTools_True,
+                   main_browser,
+                   main_browser.HasDevTools() if main_browser else None,
+                   cef.GetBrowserByIdentifier(POPUP_BROWSER_ID),
+                   display_handler2.OnLoadingProgressChange_Progress))
+            for obj in async_objects:
+                for key, value in obj.__dict__.items():
+                    if "_True" in key:
+                        dbg("TIMEOUT attr %s.%s = %s"
+                            % (obj.__class__.__name__, key, value))
         subtest_message("cef.MessageLoopWork() ok")
 
         # Make sure popup browser was destroyed
@@ -384,11 +399,13 @@ class DisplayHandler2(object):
         self.OnLoadingProgressChange_Progress = 0.0
 
     def OnAutoResize(self, browser, new_size, **_):
+        dbg("OnAutoResize %s" % (new_size,))
         if new_size[0] >= 900 and new_size[1] >= 700:
             browser.SetAutoResizeEnabled(False, [0, 0], [0, 0])
             self.OnAutoResizeContentResize_True = True
 
     def OnLoadingProgressChange(self, browser, progress, **_):
+        dbg("OnLoadingProgressChange %s" % progress)
         self.OnLoadingProgressChange_True = True
         self.OnLoadingProgressChange_Progress = progress
 
@@ -442,11 +459,14 @@ class External(object):
     def test_callbacks(self, js_callback):
         """Test both javascript and python callbacks."""
         def py_callback(msg_from_js):
+            dbg("py_callback called")
             self.py_callback_True = True
             self.test_case.assertEqual(msg_from_js,
                                        "String sent from Javascript")
+        dbg("External.test_callbacks called")
         self.test_callbacks_True = True
         js_callback.Call("String sent from Python", py_callback)
+        dbg("External.test_callbacks: js_callback.Call returned")
 
 
 if __name__ == "__main__":
