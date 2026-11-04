@@ -30,7 +30,7 @@ jobs:
         run: gh run download "${{ matrix.build_run_id }}" --repo "${{ github.repository }}" --pattern '*.whl' --dir wheel
       - name: Install wheel
         shell: bash
-        run: pip install wheel/*.whl || pip install wheel/*/*.whl
+        run: pip install "$(find wheel -type f -name "*.whl" | head -1)"
       - name: Cold run then two warm runs
         shell: bash
         run: |
