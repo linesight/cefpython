@@ -30,7 +30,19 @@ jobs:
         run: gh run download "${{ matrix.build_run_id }}" --repo "${{ github.repository }}" --pattern '*.whl' --dir wheel
       - name: Install wheel
         shell: bash
-        run: pip install "$(find wheel -type f -name "*.whl" | head -1)"
+        run: |
+          ls -la wheel
+          f=$(ls -d wheel/*.whl | head -1)
+          mkdir -p rebuilt
+          if [ -d "$f" ]; then
+            # gh unpacked the raw .whl artifact: zip it back into a wheel
+            (cd "$f" && python -m zipfile -c "../../rebuilt/$(basename "$f")" *)
+          else
+            cp "$f" rebuilt/
+          fi
+          ls -la rebuilt
+          pip install rebuilt/*.whl
+          python -c "import cefpython3, sys; print(cefpython3.__file__)"
       - name: Cold run then two warm runs
         shell: bash
         run: |
