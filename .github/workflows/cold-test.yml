@@ -63,11 +63,12 @@ jobs:
               echo "===== RUN $i HUNG after ${waited}s ====="
               tail -4 run.log
               ps -axo pid,ppid,etime,stat,command | grep -i "main_test\|helper\|cefpython" | grep -v grep | cut -c1-200
-              for p in $(pgrep -f "unittests/main_test.py"); do
+              for p in $(pgrep -f "_test_runner.py main_test") $(pgrep -f "cefpython3.*(Helper|subprocess)|Python.*--type=" | head -6); do
                 echo "--- sample of pid $p"
-                sample $p 3 -mayDie 2>&1 | head -120
+                ps -o pid,ppid,stat,%cpu,command -p $p | cut -c1-200
+                sample $p 3 -mayDie 2>&1 | grep -v "^$" | head -90
               done
-              kill -9 $(pgrep -f "unittests/main_test.py") 2>/dev/null || true
+              kill -9 $(pgrep -f "main_test") 2>/dev/null || true
               pkill -9 -f "Helper" 2>/dev/null || true
               fails=$((fails+1))
               wait $runpid 2>/dev/null || true
