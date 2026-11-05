@@ -11,6 +11,7 @@ from _common import *
 
 from cefpython3 import cefpython as cef
 
+import faulthandler
 import glob
 import os
 import sys
@@ -148,6 +149,7 @@ class MainTest_IsolatedTest(unittest.TestCase):
         """Main entry point. All the code must run inside one
         single test, otherwise strange things happen."""
 
+        faulthandler.dump_traceback_later(45, exit=False)
         print("")
         print("CEF Python {ver}".format(ver=cef.__version__))
         print("Python {ver}".format(ver=sys.version[:6]))
@@ -184,7 +186,9 @@ class MainTest_IsolatedTest(unittest.TestCase):
             nonlocal cef_active
             if cef_active:
                 cef_active = False
+                dbg("shutdown_cef: calling cef.Shutdown()")
                 cef.Shutdown()
+                dbg("shutdown_cef: cef.Shutdown() returned")
 
         self.addCleanup(shutdown_cef)
         subtest_message("cef.Initialize() ok")
