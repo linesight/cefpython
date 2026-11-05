@@ -6,6 +6,9 @@
 #if defined(OS_WIN)
 #include "dpi_aware.h"
 #endif
+#if defined(OS_MAC)
+#include "util_mac.h"
+#endif
 #include "include/base/cef_logging.h"
 
 
@@ -52,7 +55,15 @@ void LifespanHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser)
 bool LifespanHandler::DoClose(CefRefPtr<CefBrowser> browser)
 {
     REQUIRE_UI_THREAD();
-    return LifespanHandler_DoClose(browser);
+    bool handled = LifespanHandler_DoClose(browser);
+    #if defined(OS_MAC)
+    // DoClose() returning false means the browser is closing, but on macOS
+    // CEF wouldn't complete it, see MacScheduleBrowserViewDetach().
+    if (!handled) {
+        MacScheduleBrowserViewDetach(browser);
+    }
+    #endif // OS_MAC
+    return handled;
 }
 
 

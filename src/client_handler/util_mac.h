@@ -15,4 +15,13 @@ void MacShutdown();
 std::string MacGetMainBundlePath();
 void MacSetWindowTitle(CefRefPtr<CefBrowser> browser, char* title);
 
+// Push/pop an autorelease pool for Cocoa calls made from Python, outside of
+// any run loop iteration (e.g. CreateBrowserSync() before MessageLoop()).
+void* MacAutoreleasePoolPush();
+void MacAutoreleasePoolPop(void* pool);
+
+// Called after DoClose() returned false for a windowed browser. Completes the
+// browser close by detaching CEF's browser view from its superview.
+void MacScheduleBrowserViewDetach(CefRefPtr<CefBrowser> browser);
+
 #endif  // CEFPYTHON_UTIL_MAC_H_

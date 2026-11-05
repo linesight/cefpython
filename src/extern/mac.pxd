@@ -11,3 +11,5 @@ cdef extern from "client_handler/util_mac.h":
     void MacShutdown()
     cpp_string MacGetMainBundlePath()
     void MacSetWindowTitle(CefRefPtr[CefBrowser] browser, char* title)
+    void* MacAutoreleasePoolPush()
+    void MacAutoreleasePoolPop(void* pool)

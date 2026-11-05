@@ -18,6 +18,17 @@
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_browser.h"
+#include "include/base/cef_bind.h"
+#include "include/base/cef_callback.h"
+#include "include/base/cef_logging.h"
+#include "include/wrapper/cef_closure_task.h"
+
+extern "C" {
+// Public Objective-C runtime functions, declared in <objc/objc-internal.h>
+// which is not a public header.
+void* objc_autoreleasePoolPush(void);
+void objc_autoreleasePoolPop(void* pool);
+}
 
 namespace {
 
@@ -127,7 +138,108 @@ std::string MacGetMainBundlePath() {
 }
 
 void MacSetWindowTitle(CefRefPtr<CefBrowser> browser, char* title) {
-    NSView* view = CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(browser->GetHost()->GetWindowHandle());
-    NSString* nstitle = [NSString stringWithFormat:@"%s" , title];
-    view.window.title = nstitle;
+    @autoreleasepool {
+        NSView* view = CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(browser->GetHost()->GetWindowHandle());
+        NSString* nstitle = [NSString stringWithFormat:@"%s" , title];
+        view.window.title = nstitle;
+    }
+}
+
+void* MacAutoreleasePoolPush() {
+    return objc_autoreleasePoolPush();
+}
+
+void MacAutoreleasePoolPop(void* pool) {
+    if (pool) {
+        objc_autoreleasePoolPop(pool);
+    }
+}
+
+namespace {
+
+// How often and how long to wait for CEF to close its own window.
+const int kDetachRetryDelayMs = 100;
+const int kDetachMaxAttempts = 100;
+
+void DetachBrowserView(CefRefPtr<CefBrowser> browser, bool cef_window,
+                       int attempt) {
+    // OnBeforeClose() was already called, e.g. the window close that CEF
+    // sent after DoClose() destroyed the view first.
+    if (!browser->IsValid()) {
+        return;
+    }
+    @autoreleasepool {
+        NSView* view = CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(
+                browser->GetHost()->GetWindowHandle());
+        // Only ever detach CEF's own browser view, never an application view.
+        Class host_view_class = NSClassFromString(@"CefBrowserHostView");
+        if (!view || !host_view_class
+                || ![view isKindOfClass:host_view_class]) {
+            LOG(WARNING) << "[Browser process] DetachBrowserView():"
+                            " CefBrowserHostView not found, browser close"
+                            " may not complete";
+            return;
+        }
+        if (![view superview]) {
+            return;
+        }
+        if (cef_window) {
+            // The window was created by CEF. Wait until CEF has closed it
+            // and has run its cleanup, which clears the window delegate.
+            // Destroying the browser earlier frees the delegate while the
+            // window still uses it, e.g. in its close animation (crash).
+            NSWindow* window = [view window];
+            Class delegate_class = NSClassFromString(@"CefWindowDelegate");
+            if (window && ([window isVisible]
+                    || (delegate_class && [[window delegate]
+                                           isKindOfClass:delegate_class]))) {
+                if (attempt >= kDetachMaxAttempts) {
+                    LOG(WARNING) << "[Browser process] DetachBrowserView():"
+                                    " CEF didn't close the browser window,"
+                                    " browser close may not complete";
+                    return;
+                }
+                CefPostDelayedTask(TID_UI, CefCreateClosureTask(
+                        base::BindOnce(&DetachBrowserView, browser,
+                                       cef_window, attempt + 1)),
+                        kDetachRetryDelayMs);
+                return;
+            }
+        }
+        LOG(INFO) << "[Browser process] DetachBrowserView(): detach browser"
+                     " view to complete the browser close";
+        // When the superview releases the view, the view is deallocated and
+        // CEF destroys the browser, which calls OnBeforeClose().
+        [view removeFromSuperview];
+    }
+}
+
+}  // namespace
+
+void MacScheduleBrowserViewDetach(CefRefPtr<CefBrowser> browser) {
+    // CEF destroys a windowed browser only when its browser view
+    // (CefBrowserHostView) is deallocated, normally when the window is
+    // deallocated. On macOS with Alloy style the closed window is never
+    // deallocated (upstream CEF issues #3469 and #3810), so OnBeforeClose()
+    // was never called and e.g. hello_world.py's MessageLoop() never
+    // returned. DoClose() returning false commits to closing the browser, so
+    // complete the close by detaching the browser view. Run it as a task so
+    // that the window close that CEF sends after DoClose() is handled first.
+    if (browser->GetHost()->IsWindowRenderingDisabled()) {
+        // Off-screen rendering has no browser view, CEF destroys the browser
+        // right after DoClose().
+        return;
+    }
+    // Is the browser in a window that CEF created (e.g. hello_world.py) or
+    // embedded in an application window (e.g. qt.py, SetAsChild())?
+    bool cef_window = false;
+    @autoreleasepool {
+        NSView* view = CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(
+                browser->GetHost()->GetWindowHandle());
+        Class delegate_class = NSClassFromString(@"CefWindowDelegate");
+        cef_window = view && delegate_class
+                && [[[view window] delegate] isKindOfClass:delegate_class];
+    }
+    CefPostTask(TID_UI, CefCreateClosureTask(
+            base::BindOnce(&DetachBrowserView, browser, cef_window, 0)));
 }

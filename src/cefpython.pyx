@@ -668,8 +668,14 @@ def Initialize(applicationSettings=None, commandLineSwitches=None, **kwargs):
 
     Debug("CefInitialize()")
     cdef cpp_bool ret
+    cdef void* mac_autorelease_pool = NULL
+    IF UNAME_SYSNAME == "Darwin":
+        # No autorelease pool when called from Python, see CreateBrowserSync.
+        mac_autorelease_pool = MacAutoreleasePoolPush()
     with nogil:
         ret = CefInitialize(cefMainArgs, cefApplicationSettings, cefApp, NULL)
+    IF UNAME_SYSNAME == "Darwin":
+        MacAutoreleasePoolPop(mac_autorelease_pool)
     IF UNAME_SYSNAME == "Linux":
         free(argv)
 
@@ -799,13 +805,21 @@ def CreateBrowserSync(windowInfo=None,
         cefRequestContext.Assign(g_shared_request_context.get())
 
     cdef CefRefPtr[CefDictionaryValue] extra_info
+    cdef void* mac_autorelease_pool = NULL
 
     # CEF browser creation.
+    IF UNAME_SYSNAME == "Darwin":
+        # Called from Python, usually before MessageLoop(), so there's no
+        # autorelease pool. Without it, the objects that Cocoa autoreleases,
+        # e.g. the browser's window, are never released.
+        mac_autorelease_pool = MacAutoreleasePoolPush()
     with nogil:
         cefBrowser = cef_browser_static.CreateBrowserSync(
                 cefWindowInfo, <CefRefPtr[CefClient]?>clientHandler,
                 cefNavigateUrl, cefBrowserSettings, extra_info,
                 cefRequestContext)
+    IF UNAME_SYSNAME == "Darwin":
+        MacAutoreleasePoolPop(mac_autorelease_pool)
 
     if not cefBrowser or not cefBrowser.get():
         Debug("CefBrowser::CreateBrowserSync() failed")
