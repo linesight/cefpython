@@ -5,18 +5,27 @@ on:
     branches: ["ci-debug-main-test"]
 
 jobs:
-  cold:
+  load:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15]
-        stress: [1]
-        n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        cfg: [mac2, mac3, win8]
+        n: [1, 2, 3, 4, 5, 6, 7, 8]
         include:
-          - os: macos-15
+          - cfg: mac2
+            os: macos-15
+            loops: 2
             build_run_id: "41929974115"
+          - cfg: mac3
+            os: macos-15
+            loops: 3
+            build_run_id: "41929974115"
+          - cfg: win8
+            os: windows-2022
+            loops: 8
+            build_run_id: "41929970102"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -30,67 +39,43 @@ jobs:
       - name: Install wheel
         shell: bash
         run: |
-          ls -la wheel
           f=$(ls -d wheel/*.whl | head -1)
           mkdir -p rebuilt
           if [ -d "$f" ]; then
-            # gh unpacked the raw .whl artifact: zip it back into a wheel
             (cd "$f" && python -m zipfile -c "../../rebuilt/$(basename "$f")" *)
           else
             cp "$f" rebuilt/
           fi
-          ls -la rebuilt
           pip install rebuilt/*.whl
-          python -c "import cefpython3, sys; print(cefpython3.__file__)"
-      - name: Repeated main_test with hang sampling
+          python -c "import cefpython3; print(cefpython3.__file__)"
+      - name: Repeated main_test under ${{ matrix.loops }} busy loops
         shell: bash
         run: |
           pids=""
-          for k in 1 2 3 4; do
+          for k in $(seq 1 ${{ matrix.loops }}); do
             python -c "while True: pass" &
             pids="$pids $!"
           done
           fails=0
-          for i in $(seq 1 6); do
-            echo "===== VM ${{ matrix.n }} RUN $i ====="
-            before=$(ls ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null | sort)
-            PYTHONFAULTHANDLER=1 python unittests/main_test.py > run.log 2>&1 &
+          for i in $(seq 1 20); do
+            echo "===== ${{ matrix.cfg }} VM ${{ matrix.n }} RUN $i ====="
+            python unittests/main_test.py > run.log 2>&1 &
             runpid=$!
             waited=0
-            while kill -0 $runpid 2>/dev/null && [ $waited -lt 50 ]; do
+            while kill -0 $runpid 2>/dev/null && [ $waited -lt 60 ]; do
               sleep 1; waited=$((waited+1))
             done
             if kill -0 $runpid 2>/dev/null; then
-              echo "===== RUN $i HUNG after ${waited}s ====="
-              tail -8 run.log
-              echo "--- state of test process"
-              ps -axo pid,ppid,stat,%cpu,etime,command | grep "_test_runner.py main_test" | grep -v grep | cut -c1-160
-              tp=$(pgrep -f "_test_runner.py main_test" | head -1)
-              echo "--- test pid $tp"
-              ps -o pid,ppid,stat,%cpu,time,etime,wchan,command -p $tp | cut -c1-200 || true
-              rm -f lldb.txt sp.txt
-              (sudo -n lldb -p $tp --batch -o "thread backtrace all" > lldb.txt 2>&1 || true) &
-              sleep 30
-              echo "--- lldb"; head -150 lldb.txt || true
-              (sudo -n spindump $tp 3 -file sp.txt > spindump.out 2>&1 || true) &
-              sleep 20
-              echo "--- spindump"; cat spindump.out | head -5 || true
-              sed -n '/Call graph/,/Binary Images/p' sp.txt 2>/dev/null | head -120 || true
-              echo "--- children of test process"
-              ps -axo pid,ppid,stat,%cpu,command | awk -v p=$tp '$2==p' | cut -c1-200 || true
-              echo "--- waiting for the runner's own 120s timeout to flush faulthandler output"
-              waited2=0
-              while kill -0 $runpid 2>/dev/null && [ $waited2 -lt 75 ]; do sleep 1; waited2=$((waited2+1)); done
-              echo "--- run.log:"
-              tail -60 run.log || true
+              echo "===== RUN $i STILL RUNNING after ${waited}s (killing) ====="
               kill -9 $(pgrep -f "main_test") 2>/dev/null || true
-              pkill -9 -f "Helper" 2>/dev/null || true
+              taskkill //F //IM python.exe //FI "WINDOWTITLE ne none" >/dev/null 2>&1 || true
               fails=$((fails+1))
-              wait $runpid 2>/dev/null || true
-            else
-              wait $runpid || { fails=$((fails+1)); echo "===== RUN $i FAILED (exit) ====="; tail -40 run.log; }
+            elif ! wait $runpid; then
+              fails=$((fails+1))
+              echo "===== RUN $i FAILED ====="
+              grep -n "dbg\|Timed out\|AssertionError\|^[0-9]*\. " run.log | tail -45
             fi
           done
           kill $pids 2>/dev/null || true
-          echo "TOTAL FAILURES: $fails / 6"
+          echo "TOTAL FAILURES: $fails / 20"
           [ "$fails" -eq 0 ]
