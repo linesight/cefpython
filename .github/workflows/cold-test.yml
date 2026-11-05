@@ -11,12 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, macos-15]
-        stress: [0, 1]
+        os: [macos-15]
+        stress: [1]
         n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         include:
-          - os: windows-2022
-            build_run_id: "41929970102"
           - os: macos-15
             build_run_id: "41929974115"
     steps:
@@ -44,21 +42,39 @@ jobs:
           ls -la rebuilt
           pip install rebuilt/*.whl
           python -c "import cefpython3, sys; print(cefpython3.__file__)"
-      - name: Repeated main_test (stress=${{ matrix.stress }})
+      - name: Repeated main_test with hang sampling
         shell: bash
         run: |
           pids=""
-          if [ "${{ matrix.stress }}" = "1" ]; then
-            for k in 1 2 3 4; do
-              python -c "while True: pass" &
-              pids="$pids $!"
-            done
-          fi
+          for k in 1 2 3 4; do
+            python -c "while True: pass" &
+            pids="$pids $!"
+          done
           fails=0
-          for i in $(seq 1 30); do
-            echo "===== VM ${{ matrix.os }} stress=${{ matrix.stress }} n=${{ matrix.n }} RUN $i ====="
-            python unittests/main_test.py || { fails=$((fails+1)); echo "===== RUN $i FAILED ====="; }
+          for i in $(seq 1 15); do
+            echo "===== VM ${{ matrix.n }} RUN $i ====="
+            python unittests/main_test.py > run.log 2>&1 &
+            runpid=$!
+            waited=0
+            while kill -0 $runpid 2>/dev/null && [ $waited -lt 50 ]; do
+              sleep 1; waited=$((waited+1))
+            done
+            if kill -0 $runpid 2>/dev/null; then
+              echo "===== RUN $i HUNG after ${waited}s ====="
+              tail -4 run.log
+              ps -axo pid,ppid,etime,stat,command | grep -i "main_test\|helper\|cefpython" | grep -v grep | cut -c1-200
+              for p in $(pgrep -f "unittests/main_test.py"); do
+                echo "--- sample of pid $p"
+                sample $p 3 -mayDie 2>&1 | head -120
+              done
+              kill -9 $(pgrep -f "unittests/main_test.py") 2>/dev/null || true
+              pkill -9 -f "Helper" 2>/dev/null || true
+              fails=$((fails+1))
+              wait $runpid 2>/dev/null || true
+            else
+              wait $runpid || { fails=$((fails+1)); echo "===== RUN $i FAILED (exit) ====="; tail -40 run.log; }
+            fi
           done
           kill $pids 2>/dev/null || true
-          echo "TOTAL FAILURES: $fails / 30"
+          echo "TOTAL FAILURES: $fails / 15"
           [ "$fails" -eq 0 ]
