@@ -43,9 +43,12 @@ class AutoResizeHandler(object):
         if self.disabled:
             self.after_disable.append(list(new_size))
             return True
-        if new_size[0] > 700 and new_size[1] > 500:
+        if new_size[0] > 500 or new_size[1] > 500:
             # Initial resize to the default window size that may or may
-            # not occur (same as the CEF test).
+            # not occur (same idea as the CEF test, but the maximum size set
+            # below is 500x500 so anything larger cannot be a constrained
+            # auto-resize size; a fixed threshold like 700x500 misses
+            # default windows such as 752x486).
             return True
         self.sizes.append(list(new_size))
         if len(self.sizes) == 1:
@@ -70,7 +73,7 @@ class AutoResizeHandler(object):
 class AutoResizeTest_IsolatedTest(unittest.TestCase):
     def test_autoresize(self):
         """Dedicated OnAutoResize test."""
-        if LINUX:
+        if LINUX and not os.environ.get("AUTORESIZE_ON_LINUX"):
             self.skipTest("Disabled on Linux, same as CEF (CEF issue #4038)")
 
         cef_active = True
