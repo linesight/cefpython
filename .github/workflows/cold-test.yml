@@ -11,18 +11,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cfg: [win8]
+        cfg: [base, delay, retry]
         n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         include:
-          - cfg: mac2
-            os: macos-15
-            loops: 2
-            build_run_id: "41929974115"
-          - cfg: mac3
-            os: macos-15
-            loops: 3
-            build_run_id: "41929974115"
-          - cfg: win8
+          - cfg: base
+            os: windows-2022
+            loops: 8
+            build_run_id: "41929970102"
+          - cfg: delay
+            os: windows-2022
+            loops: 8
+            build_run_id: "41929970102"
+          - cfg: retry
             os: windows-2022
             loops: 8
             build_run_id: "41929970102"
@@ -59,7 +59,7 @@ jobs:
           fails=0
           for i in $(seq 1 20); do
             echo "===== ${{ matrix.cfg }} VM ${{ matrix.n }} RUN $i ====="
-            python unittests/main_test.py > run.log 2>&1 &
+            AUTORESIZE_VARIANT=${{ matrix.cfg }} python unittests/main_test.py > run.log 2>&1 &
             runpid=$!
             waited=0
             while kill -0 $runpid 2>/dev/null && [ $waited -lt 60 ]; do
@@ -70,10 +70,15 @@ jobs:
               kill -9 $(pgrep -f "main_test") 2>/dev/null || true
               taskkill //F //IM python.exe //FI "WINDOWTITLE ne none" >/dev/null 2>&1 || true
               fails=$((fails+1))
+            else
+              echo "SUMMARY ${{ matrix.cfg }} run $i: retries=$(grep -c 'autoresize retry' run.log) $(grep -o 'autoresize accepted [0-9.]*s after enable' run.log | head -1)"
+            fi
+            if kill -0 $runpid 2>/dev/null; then
+              :
             elif ! wait $runpid; then
               fails=$((fails+1))
               echo "===== RUN $i FAILED ====="
-              grep -n "dbg\|Timed out\|AssertionError\|^[0-9]*\. " run.log | tail -45
+              grep "dbg\|Timed out\|AssertionError" run.log | tail -90
             fi
           done
           kill $pids 2>/dev/null || true

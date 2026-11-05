@@ -15,6 +15,7 @@ import faulthandler
 import glob
 import os
 import sys
+import time
 
 
 g_datauri_data = """
@@ -133,15 +134,40 @@ def main_test_async_completed(global_handler, objects, loading_progress):
                if "_True" in key)
 
 
+AUTORESIZE_VARIANT = os.environ.get("AUTORESIZE_VARIANT", "base")
+g_autoresize_done = [False]
+g_autoresize_t0 = [0.0]
+
+
+def _set_body_size(browser, width, height):
+    browser.ExecuteJavascript(
+        "document.body.style.width = '%dpx';"
+        "document.body.style.height = '%dpx';" % (width, height))
+
+
+def _retry_auto_resize(browser, attempt):
+    if g_autoresize_done[0] or attempt > 20:
+        return
+    dbg("autoresize retry %d" % attempt)
+    _set_body_size(browser, 900 + attempt, 700 + attempt)
+    cef.PostDelayedTask(cef.TID_UI, 500, _retry_auto_resize, browser,
+                        attempt + 1)
+
+
 def _enable_and_trigger_auto_resize(browser):
-    dbg("_enable_and_trigger_auto_resize")
+    dbg("_enable_and_trigger_auto_resize variant=%s" % AUTORESIZE_VARIANT)
+    g_autoresize_t0[0] = time.monotonic()
     browser.SetAutoResizeEnabled(enabled=True,
                                  min_size=[800, 600],
                                  max_size=[1024, 768])
     subtest_message("browser.SetAutoResizeEnabled() ok")
-    browser.ExecuteJavascript(
-        "document.body.style.width = '900px';"
-        "document.body.style.height = '700px';")
+    if AUTORESIZE_VARIANT == "delay":
+        cef.PostDelayedTask(cef.TID_UI, 300, _set_body_size, browser,
+                            900, 700)
+        return
+    _set_body_size(browser, 900, 700)
+    if AUTORESIZE_VARIANT == "retry":
+        cef.PostDelayedTask(cef.TID_UI, 500, _retry_auto_resize, browser, 1)
 
 
 class MainTest_IsolatedTest(unittest.TestCase):
@@ -405,6 +431,9 @@ class DisplayHandler2(object):
     def OnAutoResize(self, browser, new_size, **_):
         dbg("OnAutoResize %s" % (new_size,))
         if new_size[0] >= 900 and new_size[1] >= 700:
+            g_autoresize_done[0] = True
+            dbg("autoresize accepted %.3fs after enable"
+                % (time.monotonic() - g_autoresize_t0[0]))
             browser.SetAutoResizeEnabled(False, [0, 0], [0, 0])
             self.OnAutoResizeContentResize_True = True
 
