@@ -149,6 +149,9 @@ def _retry_auto_resize(browser, attempt):
     if g_autoresize_done[0] or attempt > 20:
         return
     dbg("autoresize retry %d" % attempt)
+    if AUTORESIZE_VARIANT == "reenable":
+        browser.SetAutoResizeEnabled(enabled=True, min_size=[800, 600],
+                                     max_size=[1024, 768])
     _set_body_size(browser, 900 + attempt, 700 + attempt)
     cef.PostDelayedTask(cef.TID_UI, 500, _retry_auto_resize, browser,
                         attempt + 1)
@@ -166,7 +169,7 @@ def _enable_and_trigger_auto_resize(browser):
                             900, 700)
         return
     _set_body_size(browser, 900, 700)
-    if AUTORESIZE_VARIANT == "retry":
+    if AUTORESIZE_VARIANT in ("retry", "reenable"):
         cef.PostDelayedTask(cef.TID_UI, 500, _retry_auto_resize, browser, 1)
 
 

@@ -11,18 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cfg: [base, delay, retry]
+        cfg: [reenable]
         n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         include:
-          - cfg: base
-            os: windows-2022
-            loops: 8
-            build_run_id: "41929970102"
-          - cfg: delay
-            os: windows-2022
-            loops: 8
-            build_run_id: "41929970102"
-          - cfg: retry
+          - cfg: reenable
             os: windows-2022
             loops: 8
             build_run_id: "41929970102"
