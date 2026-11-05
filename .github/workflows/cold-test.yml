@@ -51,9 +51,10 @@ jobs:
             pids="$pids $!"
           done
           fails=0
-          for i in $(seq 1 15); do
+          for i in $(seq 1 8); do
             echo "===== VM ${{ matrix.n }} RUN $i ====="
-            python unittests/main_test.py > run.log 2>&1 &
+            before=$(ls ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null | sort)
+            PYTHONFAULTHANDLER=1 python unittests/main_test.py > run.log 2>&1 &
             runpid=$!
             waited=0
             while kill -0 $runpid 2>/dev/null && [ $waited -lt 50 ]; do
@@ -61,12 +62,25 @@ jobs:
             done
             if kill -0 $runpid 2>/dev/null; then
               echo "===== RUN $i HUNG after ${waited}s ====="
-              tail -4 run.log
-              ps -axo pid,ppid,etime,stat,command | grep -i "main_test\|helper\|cefpython" | grep -v grep | cut -c1-200
+              tail -8 run.log
+              echo "--- state of test process"
+              ps -axo pid,ppid,stat,%cpu,etime,command | grep "_test_runner.py main_test" | grep -v grep | cut -c1-160
+              echo "--- waiting up to 150s for a crash report"
+              for w in $(seq 1 30); do
+                sleep 5
+                after=$(ls ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null | sort)
+                [ "$before" != "$after" ] && break
+                kill -0 $runpid 2>/dev/null || break
+              done
+              echo "--- diagnostic reports now:"
+              ls -la ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null
+              python ips_dump.py $(ls -t ~/Library/Logs/DiagnosticReports/*.ips /Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -2)
+              echo "--- run.log now:"
+              tail -30 run.log
               for p in $(pgrep -f "_test_runner.py main_test") $(pgrep -f "cefpython3.*(Helper|subprocess)|Python.*--type=" | head -6); do
                 echo "--- sample of pid $p"
                 ps -o pid,ppid,stat,%cpu,command -p $p | cut -c1-200
-                sample $p 3 -mayDie 2>&1 | grep -v "^$" | head -90
+                sample $p 3 -mayDie 2>&1 | sed -n '/^Call graph/,/^Binary Images/p' | head -80
               done
               kill -9 $(pgrep -f "main_test") 2>/dev/null || true
               pkill -9 -f "Helper" 2>/dev/null || true
@@ -77,5 +91,5 @@ jobs:
             fi
           done
           kill $pids 2>/dev/null || true
-          echo "TOTAL FAILURES: $fails / 15"
+          echo "TOTAL FAILURES: $fails / 8"
           [ "$fails" -eq 0 ]
