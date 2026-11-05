@@ -339,10 +339,6 @@ class MainTest_IsolatedTest(unittest.TestCase):
             lambda: main_test_async_completed(
                 global_handler, async_objects,
                 display_handler2.OnLoadingProgressChange_Progress))
-        self.assertTrue(
-            async_completed,
-            "Timed out waiting for load/JavaScript callbacks, popup "
-            "destruction and DevTools closure")
         if not async_completed:
             main_browser = cef.GetBrowserByIdentifier(MAIN_BROWSER_ID)
             dbg("TIMEOUT state: js_code_completed=%s HasDevTools_True=%s "
@@ -357,6 +353,10 @@ class MainTest_IsolatedTest(unittest.TestCase):
                     if "_True" in key:
                         dbg("TIMEOUT attr %s.%s = %s"
                             % (obj.__class__.__name__, key, value))
+        self.assertTrue(
+            async_completed,
+            "Timed out waiting for load/JavaScript callbacks, popup "
+            "destruction and DevTools closure")
         subtest_message("cef.MessageLoopWork() ok")
 
         # Make sure popup browser was destroyed
