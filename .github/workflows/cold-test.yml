@@ -65,18 +65,24 @@ jobs:
               tail -8 run.log
               echo "--- state of test process"
               ps -axo pid,ppid,stat,%cpu,etime,command | grep "_test_runner.py main_test" | grep -v grep | cut -c1-160
-              sleep 15
-              echo "--- run.log now:"
-              tail -40 run.log
               tp=$(pgrep -f "_test_runner.py main_test" | head -1)
               echo "--- test pid $tp"
-              ps -o pid,ppid,stat,%cpu,time,etime,wchan,command -p $tp | cut -c1-200
-              echo "--- lldb"
-              sudo -n timeout 60 lldb -p $tp --batch -o "thread backtrace all" 2>&1 | head -150
-              echo "--- spindump"
-              sudo -n timeout 60 spindump $tp 3 -file /tmp/sp.txt >/dev/null 2>&1; sed -n '/Call graph/,/Binary Images/p' /tmp/sp.txt | head -120
+              ps -o pid,ppid,stat,%cpu,time,etime,wchan,command -p $tp | cut -c1-200 || true
+              rm -f lldb.txt sp.txt
+              (sudo -n lldb -p $tp --batch -o "thread backtrace all" > lldb.txt 2>&1 || true) &
+              sleep 30
+              echo "--- lldb"; head -150 lldb.txt || true
+              (sudo -n spindump $tp 3 -file sp.txt > spindump.out 2>&1 || true) &
+              sleep 20
+              echo "--- spindump"; cat spindump.out | head -5 || true
+              sed -n '/Call graph/,/Binary Images/p' sp.txt 2>/dev/null | head -120 || true
               echo "--- children of test process"
-              ps -axo pid,ppid,stat,%cpu,command | awk -v p=$tp '$2==p' | cut -c1-200
+              ps -axo pid,ppid,stat,%cpu,command | awk -v p=$tp '$2==p' | cut -c1-200 || true
+              echo "--- waiting for the runner's own 120s timeout to flush faulthandler output"
+              waited2=0
+              while kill -0 $runpid 2>/dev/null && [ $waited2 -lt 75 ]; do sleep 1; waited2=$((waited2+1)); done
+              echo "--- run.log:"
+              tail -60 run.log || true
               kill -9 $(pgrep -f "main_test") 2>/dev/null || true
               pkill -9 -f "Helper" 2>/dev/null || true
               fails=$((fails+1))
