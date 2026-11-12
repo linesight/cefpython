@@ -9,6 +9,37 @@
 #include "util.h"
 #include "include/base/cef_logging.h"
 
+#include <dlfcn.h>
+
+namespace {
+
+// cefpython does not link GTK. The GTK functions here act on widgets of the
+// host toolkit (wxPython, PyGObject), which has loaded GTK 3 itself, so they
+// are looked up in the already loaded libraries. RTLD_NOLOAD never loads GTK.
+class LoadedLibrary {
+public:
+    explicit LoadedLibrary(const char* name)
+            : handle_(dlopen(name, RTLD_LAZY | RTLD_NOLOAD)) {}
+    ~LoadedLibrary() {
+        if (handle_) {
+            dlclose(handle_);
+        }
+    }
+    LoadedLibrary(const LoadedLibrary&) = delete;
+    LoadedLibrary& operator=(const LoadedLibrary&) = delete;
+
+    template <typename Function>
+    Function Symbol(const char* name) const {
+        return handle_ ? reinterpret_cast<Function>(dlsym(handle_, name))
+                       : nullptr;
+    }
+
+private:
+    void* handle_;
+};
+
+}  // namespace
+
 int XErrorHandlerImpl(Display *display, XErrorEvent *event) {
     LOG(INFO) << ""
         << "X error received: "
@@ -27,7 +58,8 @@ int XIOErrorHandlerImpl(Display *display) {
 void InstallX11ErrorHandlers() {
     // Copied from upstream cefclient.
     // Install xlib error handlers so that the application won't be terminated
-    // on non-fatal errors. Must be done after initializing GTK.
+    // on non-fatal errors. Call it after the host toolkit was initialized,
+    // as toolkits reset the handlers.
     LOG(INFO) << "Install X11 error handlers";
     XSetErrorHandler(XErrorHandlerImpl);
     XSetIOErrorHandler(XIOErrorHandlerImpl);
@@ -51,30 +83,77 @@ unsigned long GetX11DefaultVisualId(int screen_number) {
     return XVisualIDFromVisual(DefaultVisual(xdisplay, screen_number));
 }
 
-bool SetX11DefaultVisualForGtkWidget(GtkWidget* widget) {
+void* GtkPlugNew(unsigned long socket_id) {
+    LoadedLibrary gtk("libgtk-3.so.0");
+    auto gtk_plug_new = gtk.Symbol<void* (*)(unsigned long)>("gtk_plug_new");
+    if (!gtk_plug_new) {
+        LOG(ERROR) << "GtkPlugNew: GTK 3 is not loaded in this process";
+        return NULL;
+    }
+    return gtk_plug_new(socket_id);
+}
+
+void GtkWidgetShow(void* widget) {
+    LoadedLibrary gtk("libgtk-3.so.0");
+    auto gtk_widget_show = gtk.Symbol<void (*)(void*)>("gtk_widget_show");
+    if (!gtk_widget_show) {
+        LOG(ERROR) << "GtkWidgetShow: GTK 3 is not loaded in this process";
+        return;
+    }
+    gtk_widget_show(widget);
+}
+
+bool SetX11DefaultVisualForGtkWidget(void* widget) {
     // Puts |widget| on the X server's default visual (Issue #701), for
     // toolkits that have no API to set the visual, e.g. wxPython. Must be
     // called before the widget is realized.
     REQUIRE_UI_THREAD();
+    LoadedLibrary gtk("libgtk-3.so.0");
+    LoadedLibrary gdk("libgdk-3.so.0");
+    LoadedLibrary gobject("libgobject-2.0.so.0");
+    auto gtk_widget_get_realized =
+            gtk.Symbol<int (*)(void*)>("gtk_widget_get_realized");
+    auto gtk_widget_get_screen =
+            gtk.Symbol<void* (*)(void*)>("gtk_widget_get_screen");
+    auto gtk_widget_set_visual =
+            gtk.Symbol<void (*)(void*, void*)>("gtk_widget_set_visual");
+    auto gdk_x11_screen_get_type =
+            gdk.Symbol<size_t (*)()>("gdk_x11_screen_get_type");
+    auto gdk_x11_screen_get_screen_number =
+            gdk.Symbol<int (*)(void*)>("gdk_x11_screen_get_screen_number");
+    auto gdk_x11_screen_lookup_visual =
+            gdk.Symbol<void* (*)(void*, unsigned long)>(
+                    "gdk_x11_screen_lookup_visual");
+    auto g_type_check_instance_is_a =
+            gobject.Symbol<int (*)(void*, size_t)>(
+                    "g_type_check_instance_is_a");
+    if (!gtk_widget_get_realized || !gtk_widget_get_screen
+            || !gtk_widget_set_visual || !gdk_x11_screen_get_type
+            || !gdk_x11_screen_get_screen_number
+            || !gdk_x11_screen_lookup_visual || !g_type_check_instance_is_a) {
+        LOG(WARNING) << "SetX11DefaultVisualForGtkWidget: "
+                        "GTK 3 is not loaded in this process";
+        return false;
+    }
     if (!widget || gtk_widget_get_realized(widget)) {
         LOG(WARNING) << "SetX11DefaultVisualForGtkWidget: "
                         "invalid or already realized widget";
         return false;
     }
-    GdkScreen* screen = gtk_widget_get_screen(widget);
-    if (!screen || !GDK_IS_X11_SCREEN(screen)) {
+    void* screen = gtk_widget_get_screen(widget);
+    if (!screen
+            || !g_type_check_instance_is_a(screen, gdk_x11_screen_get_type())) {
         LOG(WARNING) << "SetX11DefaultVisualForGtkWidget: "
                         "widget is not on an X11 screen";
         return false;
     }
     unsigned long visual_id = GetX11DefaultVisualId(
-            gdk_x11_screen_get_screen_number(GDK_X11_SCREEN(screen)));
+            gdk_x11_screen_get_screen_number(screen));
     if (!visual_id) {
         // GetX11DefaultVisualId logged why
         return false;
     }
-    GdkVisual* visual = gdk_x11_screen_lookup_visual(GDK_X11_SCREEN(screen),
-                                                     visual_id);
+    void* visual = gdk_x11_screen_lookup_visual(screen, visual_id);
     if (!visual) {
         LOG(WARNING) << "SetX11DefaultVisualForGtkWidget: "
                         "no GDK visual for X visual " << visual_id;
@@ -135,68 +214,6 @@ void SetX11WindowTitle(CefRefPtr<CefBrowser> browser, char* title) {
         return;
     }
     XStoreName(xdisplay, xwindow, title);
-}
-
-GtkWindow* CefBrowser_GetGtkWindow(CefRefPtr<CefBrowser> browser) {
-  // TODO: Should return NULL when using the Views framework
-  // -- REWRITTEN FOR CEF PYTHON USE CASE --
-  //
-  // Returns a GtkWindow* to use as the transient parent for GTK dialogs (the
-  // file-chooser and print handlers); it is never used for browser embedding.
-  //
-  // Upstream cefclient gets this parent from its own top-level GtkWindow, via
-  // RootWindow::GetForBrowser(id)->GetWindowHandle() - see GetWindow() in CEF's
-  // tests/cefclient/browser/dialog_handler_gtk.cc. cefpython has no such
-  // GtkWindow: the browser is embedded with CefWindowInfo::SetAsChild() into a
-  // foreign toolkit's X11 window (Qt/GTK/wx/tk), not a cefclient RootWindow.
-  // So instead we wrap the browser's own X11 window - CefBrowserHost::
-  // GetWindowHandle(), which is the XID on Linux (include/cef_browser.h) - as a
-  // GtkWindow using gtk_plug_new_for_display().
-  //
-  // The browser window is not a real GtkSocket, so GTK may log
-  // "Can't create GtkPlug as child of non-GtkSocket" (harmless; the dialog
-  // still works - see the note further down).
-  //
-  // X11 window handle
-  ::Window xwindow = browser->GetHost()->GetWindowHandle();
-  // X11 display
-  ::Display* xdisplay = cef_get_xdisplay();
-  // GDK display
-  GdkDisplay* gdk_display = NULL;
-  if (xdisplay) {
-    // See if we can find GDK display using X11 display
-    gdk_display = gdk_x11_lookup_xdisplay(xdisplay);
-  }
-  if (!gdk_display) {
-    // If not then get the default display
-    gdk_display = gdk_display_get_default();
-  }
-  if (!gdk_display) {
-    // The tkinter_.py and hello_world.py examples do not use GTK
-    // internally, so GTK wasn't yet initialized and must do it
-    // now, so that display is available. Also must install X11
-    // error handlers to avoid 'BadWindow' errors.
-    // --
-    // A similar code is in cefpython_app.cpp and it might already
-    // been executed. If making changes here, make changes there
-    // as well.
-    LOG(INFO) << "Initialize GTK";
-    gtk_init(0, NULL);
-    InstallX11ErrorHandlers();
-    // Now the display is available
-    gdk_display = gdk_display_get_default();
-  }
-  // In kivy_.py example getting error message:
-  // > Can't create GtkPlug as child of non-GtkSocket
-  // However dialog handler works just fine.
-  GtkWidget* widget = gtk_plug_new_for_display(gdk_display, xwindow);
-  // Getting top level widget doesn't seem to be required.
-  // OFF: GtkWidget* toplevel = gtk_widget_get_toplevel(widget);
-  GtkWindow* window = GTK_WINDOW(widget);
-  if (!window) {
-    LOG(ERROR) << "No GtkWindow for browser";
-  }
-  return window;
 }
 
 XImage* CefBrowser_GetImage(CefRefPtr<CefBrowser> browser) {
