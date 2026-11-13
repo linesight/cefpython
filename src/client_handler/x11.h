@@ -22,5 +22,10 @@ void SetX11WindowBounds(CefRefPtr<CefBrowser> browser,
                         int x, int y, int width, int height);
 void SetX11WindowTitle(CefRefPtr<CefBrowser> browser, char* title);
 
+void CreateX11BridgeWindow(CefWindowInfo& window_info);
+void AttachX11BridgeWindow(CefRefPtr<CefBrowser> browser);
+void DestroyUnusedX11BridgeWindow();
+void DestroyX11BridgeWindow(CefRefPtr<CefBrowser> browser);
+
 GtkWindow* CefBrowser_GetGtkWindow(CefRefPtr<CefBrowser> browser);
 XImage* CefBrowser_GetImage(CefRefPtr<CefBrowser> browser);

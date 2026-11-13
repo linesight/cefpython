@@ -833,11 +833,15 @@ def CreateBrowserSync(windowInfo=None,
     cdef CefRefPtr[CefDictionaryValue] extra_info
 
     # CEF browser creation.
+    IF UNAME_SYSNAME == "Linux":
+        x11.CreateX11BridgeWindow(cefWindowInfo)
     with nogil:
         cefBrowser = cef_browser_static.CreateBrowserSync(
                 cefWindowInfo, <CefRefPtr[CefClient]?>clientHandler,
                 cefNavigateUrl, cefBrowserSettings, extra_info,
                 cefRequestContext)
+    IF UNAME_SYSNAME == "Linux":
+        x11.DestroyUnusedX11BridgeWindow()
 
     if not cefBrowser or not cefBrowser.get():
         Debug("CefBrowser::CreateBrowserSync() failed")

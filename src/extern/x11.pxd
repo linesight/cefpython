@@ -6,6 +6,7 @@ from cef_ptr cimport CefRefPtr
 # noinspection PyUnresolvedReferences
 from cef_browser cimport CefBrowser
 from linux cimport XImage, GtkWidget
+from cef_platform cimport CefWindowInfo
 
 cdef extern from "client_handler/x11.h" nogil:
     void InstallX11ErrorHandlers()
@@ -14,4 +15,8 @@ cdef extern from "client_handler/x11.h" nogil:
     void SetX11WindowBounds(CefRefPtr[CefBrowser] browser,
                             int x, int y, int width, int height)
     void SetX11WindowTitle(CefRefPtr[CefBrowser] browser, char* title)
+    void CreateX11BridgeWindow(CefWindowInfo& window_info)
+    void AttachX11BridgeWindow(CefRefPtr[CefBrowser] browser)
+    void DestroyUnusedX11BridgeWindow()
+    void DestroyX11BridgeWindow(CefRefPtr[CefBrowser] browser)
     XImage* CefBrowser_GetImage(CefRefPtr[CefBrowser] browser)

@@ -18,6 +18,12 @@ WINDOWS = (platform.system() == "Windows")
 LINUX = (platform.system() == "Linux")
 MAC = (platform.system() == "Darwin")
 
+# CEF only supports X11 on Linux, so put GTK on its X11 backend (XWayland
+# in Wayland sessions), where GetHandle() returns an X11 window ID that the
+# browser can be embedded into. Must be set before wx.App is created.
+if LINUX:
+    os.environ["GDK_BACKEND"] = "x11"
+
 if MAC:
     try:
         # noinspection PyUnresolvedReferences
@@ -134,15 +140,6 @@ class MainFrame(wx.Frame):
             NSApp.windows()[0].contentView().setWantsLayer_(True)
 
         if LINUX:
-            # Put the frame on the X server's default visual before it is
-            # realized (shown), otherwise the browser stays blank with
-            # GTK 3 (Issue #701).
-            if "gtk3" in wx.PlatformInfo:
-                widget = self.GetGtkWidget()
-                set_visual = cef.WindowUtils.SetX11DefaultVisualForGtkWidget
-                if not widget or not set_visual(int(widget)):
-                    raise RuntimeError("Could not set the GTK window's"
-                                       " X11 visual")
             # On Linux must show before embedding browser, so that handle
             # is available (Issue #347).
             self.Show()

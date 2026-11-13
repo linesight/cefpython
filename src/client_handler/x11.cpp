@@ -7,7 +7,51 @@
 
 #include "x11.h"
 #include "util.h"
+#include "include/base/cef_bind.h"
+#include "include/base/cef_callback.h"
 #include "include/base/cef_logging.h"
+#include "include/wrapper/cef_closure_task.h"
+
+#include <X11/Xatom.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <map>
+
+namespace {
+
+// Browser identifier -> the bridge window its browser window is in.
+std::map<int, ::Window> g_bridge_windows;
+// The bridge window of the browser being created, until OnAfterCreated.
+::Window g_new_bridge_window = 0;
+
+void DestroyBridgeWindowWhenEmpty(::Window bridge, int retries) {
+    // CEF destroys its window over its own X connection, and may not have
+    // sent that request yet. Destroying the bridge window first would destroy
+    // CEF's window with it, and CEF's request would then fail.
+    ::Display* xdisplay = cef_get_xdisplay();
+    if (!xdisplay) {
+        return;
+    }
+    ::Window root, parent, *children = nullptr;
+    unsigned int count = 0;
+    if (!XQueryTree(xdisplay, bridge, &root, &parent, &children, &count)) {
+        // Destroyed together with its parent window
+        return;
+    }
+    if (children) {
+        XFree(children);
+    }
+    if (count && retries > 0) {
+        CefPostDelayedTask(TID_UI, CefCreateClosureTask(base::BindOnce(
+                &DestroyBridgeWindowWhenEmpty, bridge, retries - 1)), 50);
+        return;
+    }
+    XDestroyWindow(xdisplay, bridge);
+    XFlush(xdisplay);
+}
+
+}  // namespace
 
 int XErrorHandlerImpl(Display *display, XErrorEvent *event) {
     LOG(INFO) << ""
@@ -111,6 +155,13 @@ void SetX11WindowBounds(CefRefPtr<CefBrowser> browser,
     changes.y = y;
     changes.width = static_cast<int>(width);
     changes.height = static_cast<int>(height);
+    auto bridge = g_bridge_windows.find(browser->GetIdentifier());
+    if (bridge != g_bridge_windows.end()) {
+        XConfigureWindow(xdisplay, bridge->second,
+                         CWX | CWY | CWHeight | CWWidth, &changes);
+        changes.x = 0;
+        changes.y = 0;
+    }
     XConfigureWindow(xdisplay, xwindow,
                      CWX | CWY | CWHeight | CWWidth, &changes);
     XFlush(xdisplay);
@@ -135,6 +186,106 @@ void SetX11WindowTitle(CefRefPtr<CefBrowser> browser, char* title) {
         return;
     }
     XStoreName(xdisplay, xwindow, title);
+}
+
+void CreateX11BridgeWindow(CefWindowInfo& window_info) {
+    // CEF creates its window on the X server's default visual with the
+    // colormap CopyFromParent, which X allows only inside a window with that
+    // same visual. GTK 3 and SDL put their windows on other visuals, so
+    // embed the browser into a window in between that has the default visual
+    // and an explicit colormap.
+    REQUIRE_UI_THREAD();
+    ::Window parent = window_info.parent_window;
+    if (!parent || window_info.windowless_rendering_enabled) {
+        return;
+    }
+    // See SetX11WindowBounds: NULL off the UI thread or on a non-X11 Ozone
+    // backend.
+    ::Display* xdisplay = cef_get_xdisplay();
+    if (!xdisplay) {
+        LOG(WARNING) << "CreateX11BridgeWindow: no X11 display "
+                        "(wrong thread or non-X11 backend)";
+        return;
+    }
+    XWindowAttributes parent_attrs;
+    if (!XGetWindowAttributes(xdisplay, parent, &parent_attrs)) {
+        LOG(WARNING) << "CreateX11BridgeWindow: XGetWindowAttributes failed"
+                        " for parent window " << parent;
+        return;
+    }
+    Screen* screen = parent_attrs.screen;
+    Visual* visual = DefaultVisualOfScreen(screen);
+    if (XVisualIDFromVisual(parent_attrs.visual)
+            == XVisualIDFromVisual(visual)) {
+        return;
+    }
+    cef_rect_t& bounds = window_info.bounds;
+    // The size CEF uses when none is given
+    if (!bounds.width) {
+        bounds.width = 800;
+    }
+    if (!bounds.height) {
+        bounds.height = 600;
+    }
+    XSetWindowAttributes attrs = {};
+    attrs.background_pixel = BlackPixelOfScreen(screen);
+    attrs.border_pixel = 0;
+    attrs.colormap = DefaultColormapOfScreen(screen);
+    ::Window bridge = XCreateWindow(
+            xdisplay, parent, bounds.x, bounds.y,
+            std::max(bounds.width, 1), std::max(bounds.height, 1), 0,
+            DefaultDepthOfScreen(screen), InputOutput, visual,
+            CWBackPixel | CWBorderPixel | CWColormap, &attrs);
+    // CEF looks for the application's top-level window, e.g. to set
+    // XdndProxy on it, through the ancestors that have _NET_WM_PID.
+    long pid = getpid();
+    XChangeProperty(xdisplay, bridge,
+                    XInternAtom(xdisplay, "_NET_WM_PID", False),
+                    XA_CARDINAL, 32, PropModeReplace,
+                    reinterpret_cast<unsigned char*>(&pid), 1);
+    XMapWindow(xdisplay, bridge);
+    // CEF creates its window over another X connection, so the bridge
+    // window must exist on the server before that.
+    XSync(xdisplay, False);
+    LOG(INFO) << std::hex << "Parent window 0x" << parent
+              << " has visual 0x" << XVisualIDFromVisual(parent_attrs.visual)
+              << ", embedding the browser into bridge window 0x" << bridge
+              << " with the default visual 0x" << XVisualIDFromVisual(visual);
+    window_info.parent_window = bridge;
+    bounds.x = 0;
+    bounds.y = 0;
+    g_new_bridge_window = bridge;
+}
+
+void AttachX11BridgeWindow(CefRefPtr<CefBrowser> browser) {
+    REQUIRE_UI_THREAD();
+    if (g_new_bridge_window) {
+        g_bridge_windows[browser->GetIdentifier()] = g_new_bridge_window;
+        g_new_bridge_window = 0;
+    }
+}
+
+void DestroyUnusedX11BridgeWindow() {
+    REQUIRE_UI_THREAD();
+    if (g_new_bridge_window) {
+        DestroyBridgeWindowWhenEmpty(g_new_bridge_window, 0);
+        g_new_bridge_window = 0;
+    }
+}
+
+void DestroyX11BridgeWindow(CefRefPtr<CefBrowser> browser) {
+    REQUIRE_UI_THREAD();
+    auto bridge = g_bridge_windows.find(browser->GetIdentifier());
+    if (bridge == g_bridge_windows.end()) {
+        return;
+    }
+    ::Display* xdisplay = cef_get_xdisplay();
+    if (xdisplay) {
+        XUnmapWindow(xdisplay, bridge->second);
+        XFlush(xdisplay);
+    }
+    DestroyBridgeWindowWhenEmpty(bridge->second, 20);
+    g_bridge_windows.erase(bridge);
 }
 
 GtkWindow* CefBrowser_GetGtkWindow(CefRefPtr<CefBrowser> browser) {

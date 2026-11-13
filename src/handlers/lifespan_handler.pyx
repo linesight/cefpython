@@ -97,6 +97,8 @@ cdef public void LifespanHandler_OnAfterCreated(
         ) noexcept with gil:
     cdef PyBrowser pyBrowser
     try:
+        IF UNAME_SYSNAME == "Linux":
+            x11.AttachX11BridgeWindow(cefBrowser)
         pyBrowser = GetPyBrowser(cefBrowser, "OnAfterCreated")
         callback = GetGlobalClientCallback("OnAfterCreated")
         if callback:
@@ -127,6 +129,8 @@ cdef public void LifespanHandler_OnBeforeClose(
     cdef object callback
     try:
         Debug("LifespanHandler_OnBeforeClose")
+        IF UNAME_SYSNAME == "Linux":
+            x11.DestroyX11BridgeWindow(cefBrowser)
         # NOTE: browser_id may not necessarily be in g_pyBrowsers currently.
         #       I haven't yet debugged it but the logic in Shutdown that
         #       tries to force close browsers and removes references might

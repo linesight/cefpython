@@ -85,10 +85,11 @@ cdef void SetCefWindowInfo(
             cefWindowInfo.runtime_style = CEF_RUNTIME_STYLE_ALLOY
         ELIF UNAME_SYSNAME == "Linux":
             if windowInfo.parentWindowHandle:
-                # Embed into the host toolkit window (Qt/wx/GTK/tkinter):
-                # parent CEF directly into the caller's X11 window, exactly
+                # Embed into the host toolkit window (Qt/wx/GTK/tkinter),
                 # like upstream cefclient (browser_window_std_gtk.cc:
                 # window_info.SetAsChild(GDK_WINDOW_XID(...), rect)).
+                # CreateBrowserSync() puts a window in between when that
+                # window's visual is not the X server's default one.
                 x = int(windowInfo.windowRect[0])
                 y = int(windowInfo.windowRect[1])
                 width = int(windowInfo.windowRect[2] - windowInfo.windowRect[0])
