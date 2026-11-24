@@ -269,6 +269,8 @@ cdef class PyBrowser:
             # V8ContextHandler
             self.allowedClientCallbacks += ["OnContextCreated",
                     "OnContextReleased"]
+            # DialogHandler
+            self.allowedClientCallbacks += ["OnFileDialog"]
             # JavascriptDialogHandler
             self.allowedClientCallbacks += ["OnJavascriptDialog",
                     "OnBeforeUnloadJavascriptDialog",

@@ -11,6 +11,7 @@
 #endif
 
 #include "context_menu_handler.h"
+#include "dialog_handler.h"
 #include "display_handler.h"
 #include "download_handler.h"
 #include "focus_handler.h"
@@ -24,6 +25,7 @@
 
 class ClientHandler : public CefClient,
                       public ContextMenuHandler,
+                      public DialogHandler,
                       public DisplayHandler,
                       public DownloadHandler,
                       public FocusHandler,
@@ -39,6 +41,10 @@ public:
     virtual ~ClientHandler(){}
 
     CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {
+        return this;
+    }
+
+    CefRefPtr<CefDialogHandler> GetDialogHandler() override {
         return this;
     }
 

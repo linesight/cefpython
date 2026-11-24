@@ -137,6 +137,7 @@ at this moment.
 #### Client handlers (interfaces)
 
  * [AccessibilityHandler](api/AccessibilityHandler.md#accessibilityhandler-interface)
+ * [DialogHandler](api/DialogHandler.md#dialoghandler-interface)
  * [DisplayHandler](api/DisplayHandler.md#displayhandler-interface)
  * [DownloadHandler](api/DownloadHandler.md#downloadhandler)
  * [FocusHandler](api/FocusHandler.md#focushandler-interface)
@@ -346,6 +347,10 @@ at this moment.
   * [FlushStore](api/CookieManager.md#flushstore)
 * [CookieVisitor (interface)](api/CookieVisitor.md#cookievisitor-interface)
   * [Visit](api/CookieVisitor.md#visit)
+* [DialogHandler (interface)](api/DialogHandler.md#dialoghandler-interface)
+  * [Continue](api/DialogHandler.md#continue)
+  * [Cancel](api/DialogHandler.md#cancel)
+  * [OnFileDialog](api/DialogHandler.md#onfiledialog)
 * [DisplayHandler (interface)](api/DisplayHandler.md#displayhandler-interface)
   * [OnAddressChange](api/DisplayHandler.md#onaddresschange)
   * [OnAutoResize](api/DisplayHandler.md#onautoresize)
